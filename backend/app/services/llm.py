@@ -103,7 +103,7 @@ async def _stream_anthropic(
         else:
             user_messages.append(m)
 
-    kwargs = {"model": model, "messages": user_messages, "max_tokens": 1024, "stream": True}
+    kwargs = {"model": model, "messages": user_messages, "max_tokens": 1024}
     if system_msg:
         kwargs["system"] = system_msg
     if tools:
@@ -113,14 +113,13 @@ async def _stream_anthropic(
         ]
 
     async with client.messages.stream(**kwargs) as stream:
-        async for event in stream:
-            if event.type == "content_block_delta" and hasattr(event.delta, "text"):
-                yield {"type": "text_delta", "content": event.delta.text}
+        async for text in stream.text_stream:
+            yield {"type": "text_delta", "content": text}
 
-    final = await stream.get_final_message()
-    for block in final.content:
-        if block.type == "tool_use":
-            yield {"type": "tool_call", "name": block.name, "arguments": block.input}
+        final = await stream.get_final_message()
+        for block in final.content:
+            if block.type == "tool_use":
+                yield {"type": "tool_call", "name": block.name, "arguments": block.input}
 
     yield {"type": "done"}
 
