@@ -42,7 +42,7 @@ export default function VoiceCallButton({
         )}
 
         {isConnected && (
-          <span className="flex items-center gap-1.5 text-sm text-gray-400">
+          <span className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
             {isRecording ? (
               <>
                 <Mic className="w-4 h-4 text-green-400 animate-pulse" />
@@ -61,7 +61,7 @@ export default function VoiceCallButton({
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {transcript.length > 0 && (
-        <div className="bg-gray-900 rounded-lg p-3 max-h-60 overflow-y-auto space-y-2 border border-gray-800">
+        <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 max-h-60 overflow-y-auto space-y-2 border border-gray-200 dark:border-gray-800">
           {transcript
             .filter((t) => t.is_final)
             .map((entry, i) => (
@@ -73,7 +73,7 @@ export default function VoiceCallButton({
                 >
                   {entry.role === "user" ? "You" : "AI"}:
                 </span>{" "}
-                <span className="text-gray-300">{entry.content}</span>
+                <span className="text-gray-700 dark:text-gray-300">{entry.content}</span>
               </div>
             ))}
         </div>

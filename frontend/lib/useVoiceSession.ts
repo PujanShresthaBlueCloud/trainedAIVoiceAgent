@@ -29,8 +29,31 @@ export function useVoiceSession(agentId?: string) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
+  const mountedRef = useRef(true);
+
+  const cleanup = useCallback(() => {
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+    if (playbackContextRef.current) {
+      playbackContextRef.current.close().catch(() => {});
+      playbackContextRef.current = null;
+    }
+  }, []);
 
   const connect = useCallback(async () => {
+    // Prevent connecting if already connected
+    if (wsRef.current) return;
+
     try {
       setState((s) => ({ ...s, error: null, transcript: [] }));
 
@@ -42,6 +65,13 @@ export function useVoiceSession(agentId?: string) {
           noiseSuppression: true,
         },
       });
+
+      // Check if component unmounted while awaiting mic permission
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
       mediaStreamRef.current = stream;
 
       const audioCtx = new AudioContext({ sampleRate: 16000 });
@@ -54,6 +84,10 @@ export function useVoiceSession(agentId?: string) {
       ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
+        if (!mountedRef.current) {
+          ws.close();
+          return;
+        }
         setState((s) => ({ ...s, isConnected: true, isRecording: true }));
 
         const source = audioCtx.createMediaStreamSource(stream);
@@ -86,6 +120,8 @@ export function useVoiceSession(agentId?: string) {
       };
 
       ws.onclose = () => {
+        wsRef.current = null;
+        cleanup();
         setState((s) => ({ ...s, isConnected: false, isRecording: false }));
       };
 
@@ -95,34 +131,20 @@ export function useVoiceSession(agentId?: string) {
     } catch (err: any) {
       setState((s) => ({ ...s, error: err.message || "Failed to connect" }));
     }
-  }, [agentId]);
+  }, [agentId, cleanup]);
 
   const disconnect = useCallback(() => {
-    if (wsRef.current) {
-      if (wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "end" }));
+    const ws = wsRef.current;
+    if (ws) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "end" }));
       }
-      wsRef.current.close();
+      ws.close();
       wsRef.current = null;
     }
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-      mediaStreamRef.current = null;
-    }
-    if (playbackContextRef.current) {
-      playbackContextRef.current.close();
-      playbackContextRef.current = null;
-    }
+    cleanup();
     setState((s) => ({ ...s, isConnected: false, isRecording: false }));
-  }, []);
+  }, [cleanup]);
 
   const handleMessage = useCallback((msg: any) => {
     if (msg.type === "transcript") {
@@ -165,7 +187,9 @@ export function useVoiceSession(agentId?: string) {
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       disconnect();
     };
   }, [disconnect]);

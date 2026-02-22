@@ -128,8 +128,8 @@ export default function AgentsPage() {
     <div className="p-8">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white">Agents</h1>
-          <p className="text-gray-400 mt-1">Create and manage your voice AI agents</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Agents</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Create and manage your voice AI agents</p>
         </div>
         <button
           onClick={openCreate}
@@ -145,7 +145,7 @@ export default function AgentsPage() {
           <TestCallSection agentId={testAgent.id} agentName={testAgent.name} />
           <button
             onClick={() => setTestAgent(null)}
-            className="mt-2 text-sm text-gray-400 hover:text-white"
+            className="mt-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
           >
             Close test call
           </button>
@@ -153,27 +153,27 @@ export default function AgentsPage() {
       )}
 
       {loading ? (
-        <div className="text-center text-gray-500 py-12">Loading agents...</div>
+        <div className="text-center text-gray-400 dark:text-gray-500 py-12">Loading agents...</div>
       ) : agents.length === 0 ? (
-        <div className="text-center py-12 bg-gray-900 rounded-xl border border-gray-800">
+        <div className="text-center py-12 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
           <Bot className="w-12 h-12 mx-auto text-gray-600 mb-4" />
-          <p className="text-gray-400">No agents yet. Create your first one!</p>
+          <p className="text-gray-500 dark:text-gray-400">No agents yet. Create your first one!</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {agents.map((agent) => (
             <div
               key={agent.id}
-              className="bg-gray-900 rounded-xl border border-gray-800 p-6 hover:border-gray-700 transition-colors"
+              className="bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-6 hover:border-gray-300 dark:hover:border-gray-700 transition-colors"
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-indigo-600/20 rounded-lg flex items-center justify-center">
+                  <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-600/20 rounded-lg flex items-center justify-center">
                     <Bot className="w-5 h-5 text-indigo-400" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-white">{agent.name}</h3>
-                    <p className="text-xs text-gray-500">{agent.llm_model}</p>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{agent.name}</h3>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">{agent.llm_model}</p>
                   </div>
                 </div>
                 <span
@@ -184,12 +184,12 @@ export default function AgentsPage() {
               </div>
 
               {agent.description && (
-                <p className="text-sm text-gray-400 mb-3 line-clamp-2">{agent.description}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3 line-clamp-2">{agent.description}</p>
               )}
 
               <div className="flex flex-wrap gap-1 mb-4">
                 {(agent.tools_enabled || []).map((tool) => (
-                  <span key={tool} className="px-2 py-0.5 bg-gray-800 rounded text-xs text-gray-400">
+                  <span key={tool} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-500 dark:text-gray-400">
                     {tool}
                   </span>
                 ))}
@@ -198,20 +198,20 @@ export default function AgentsPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setTestAgent(agent)}
-                  className="flex-1 bg-green-600/20 hover:bg-green-600/30 text-green-400 px-3 py-1.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-colors"
+                  className="flex-1 bg-green-50 dark:bg-green-600/20 hover:bg-green-100 dark:hover:bg-green-600/30 text-green-700 dark:text-green-400 px-3 py-1.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-colors"
                 >
                   <Phone className="w-3.5 h-3.5" />
                   Test Call
                 </button>
                 <button
                   onClick={() => openEdit(agent)}
-                  className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition-colors"
+                  className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                 >
                   <Pencil className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleDelete(agent.id)}
-                  className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-red-400 transition-colors"
+                  className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-red-400 transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -223,52 +223,52 @@ export default function AgentsPage() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 rounded-xl border border-gray-800 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-              <h2 className="text-lg font-semibold text-white">
+          <div className="bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {editing ? "Edit Agent" : "Create Agent"}
               </h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white">
+              <button onClick={() => setShowModal(false)} className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="px-6 py-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Name</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                   placeholder="My AI Agent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Description</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
                 <input
                   type="text"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                   placeholder="A brief description..."
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">System Prompt</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">System Prompt</label>
                 <textarea
                   value={form.system_prompt}
                   onChange={(e) => setForm({ ...form, system_prompt: e.target.value })}
                   rows={4}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none"
+                  className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">LLM Model</label>
                   <select
                     value={form.llm_model}
                     onChange={(e) => setForm({ ...form, llm_model: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                   >
                     {LLM_MODELS.map((m) => (
                       <option key={m} value={m}>{m}</option>
@@ -276,26 +276,26 @@ export default function AgentsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Language</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Language</label>
                   <input
                     type="text"
                     value={form.language}
                     onChange={(e) => setForm({ ...form, language: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Voice ID (ElevenLabs)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Voice ID (ElevenLabs)</label>
                 <input
                   type="text"
                   value={form.voice_id}
                   onChange={(e) => setForm({ ...form, voice_id: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Tools</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tools</label>
                 <div className="flex flex-wrap gap-2">
                   {AVAILABLE_TOOLS.map((tool) => (
                     <button
@@ -304,7 +304,7 @@ export default function AgentsPage() {
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                         form.tools_enabled.includes(tool)
                           ? "bg-indigo-600 text-white"
-                          : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                          : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
                       }`}
                     >
                       {tool}
@@ -317,15 +317,15 @@ export default function AgentsPage() {
                   type="checkbox"
                   checked={form.is_active}
                   onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                  className="rounded bg-gray-800 border-gray-700 text-indigo-600"
+                  className="rounded bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-indigo-600"
                 />
-                <label className="text-sm text-gray-300">Active</label>
+                <label className="text-sm text-gray-700 dark:text-gray-300">Active</label>
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-800 flex justify-end gap-3">
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex justify-end gap-3">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors"
+                className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
               >
                 Cancel
               </button>
