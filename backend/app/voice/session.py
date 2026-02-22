@@ -33,11 +33,17 @@ class VoiceSession:
         self._started_at = time.time()
 
     async def start(self):
+        logger.info(f"Voice session starting: call={self.call_id}, agent={self.agent_id}")
+
         if self.agent_id:
-            db = get_supabase()
-            result = db.table("agents").select("*").eq("id", self.agent_id).execute()
-            if result.data:
-                self.agent = result.data[0]
+            try:
+                db = get_supabase()
+                result = db.table("agents").select("*").eq("id", self.agent_id).execute()
+                if result.data:
+                    self.agent = result.data[0]
+                    logger.info(f"Loaded agent: {self.agent.get('name', 'unknown')}, model={self.agent.get('llm_model')}")
+            except Exception as e:
+                logger.error(f"Failed to load agent: {e}")
 
         if not self.agent:
             self.agent = {
@@ -47,12 +53,16 @@ class VoiceSession:
                 "language": "en-US",
                 "tools_enabled": [],
             }
+            logger.info("Using default agent config")
 
         self.messages = [{"role": "system", "content": self.agent["system_prompt"]}]
 
         if self.call_id:
-            db = get_supabase()
-            db.table("calls").update({"status": "in-progress"}).eq("id", self.call_id).execute()
+            try:
+                db = get_supabase()
+                db.table("calls").update({"status": "in-progress"}).eq("id", self.call_id).execute()
+            except Exception as e:
+                logger.error(f"Failed to update call status: {e}")
 
         self.stt = DeepgramSTT(
             on_transcript=self._on_transcript,
@@ -60,10 +70,16 @@ class VoiceSession:
         )
         await self.stt.connect()
 
+        if not self.stt._ws:
+            logger.error("Deepgram STT failed to connect - check DEEPGRAM_API_KEY")
+            if self.send_message:
+                await self.send_message({"type": "error", "message": "Speech-to-text service failed to connect. Check Deepgram API key."})
+            return
+
         if self.send_message:
             await self.send_message({"type": "session_started", "agent": self.agent.get("name", "AI Assistant")})
 
-        logger.info(f"Voice session started: call={self.call_id}, agent={self.agent_id}")
+        logger.info(f"Voice session started: call={self.call_id}, agent={self.agent_id}, stt_connected={self.stt._ws is not None}")
 
     async def handle_audio(self, audio_bytes: bytes):
         if self.stt:
@@ -79,44 +95,59 @@ class VoiceSession:
             await self._process_user_message(text)
 
     async def _process_user_message(self, text: str):
+        logger.info(f"Processing user message: '{text[:80]}...' model={self.agent.get('llm_model', 'gpt-4')}")
         self.messages.append({"role": "user", "content": text})
 
         if self.call_id:
-            db = get_supabase()
-            db.table("transcript_entries").insert({"call_id": self.call_id, "role": "user", "content": text}).execute()
+            try:
+                db = get_supabase()
+                db.table("transcript_entries").insert({"call_id": self.call_id, "role": "user", "content": text}).execute()
+            except Exception as e:
+                logger.error(f"Failed to save transcript: {e}")
 
         tools = get_tools_for_agent(self.agent.get("tools_enabled", []))
         full_response = ""
         self._interrupt_tts = False
 
-        async for chunk in stream_llm_response(
-            self.messages,
-            model=self.agent.get("llm_model", "gpt-4"),
-            tools=tools if tools else None,
-        ):
-            if self._interrupt_tts:
-                break
+        try:
+            async for chunk in stream_llm_response(
+                self.messages,
+                model=self.agent.get("llm_model", "gpt-4"),
+                tools=tools if tools else None,
+            ):
+                if self._interrupt_tts:
+                    break
 
-            if chunk["type"] == "text_delta":
-                full_response += chunk["content"]
-                if self.send_message:
-                    await self.send_message({"type": "transcript", "role": "assistant", "content": chunk["content"], "is_final": False})
+                if chunk["type"] == "text_delta":
+                    full_response += chunk["content"]
+                    if self.send_message:
+                        await self.send_message({"type": "transcript", "role": "assistant", "content": chunk["content"], "is_final": False})
 
-            elif chunk["type"] == "tool_call":
-                result = await execute_tool(self.call_id, chunk["name"], chunk["arguments"])
-                if self.send_message:
-                    await self.send_message({"type": "tool_call", "name": chunk["name"], "arguments": chunk["arguments"], "result": result})
-                if result.get("action") == "end_call":
-                    await self.end(reason=result.get("reason", "agent_ended"))
-                    return
-                self.messages.append({"role": "assistant", "content": f"[Called {chunk['name']}]"})
-                self.messages.append({"role": "user", "content": f"Tool result: {result}"})
+                elif chunk["type"] == "tool_call":
+                    result = await execute_tool(self.call_id, chunk["name"], chunk["arguments"])
+                    if self.send_message:
+                        await self.send_message({"type": "tool_call", "name": chunk["name"], "arguments": chunk["arguments"], "result": result})
+                    if result.get("action") == "end_call":
+                        await self.end(reason=result.get("reason", "agent_ended"))
+                        return
+                    self.messages.append({"role": "assistant", "content": f"[Called {chunk['name']}]"})
+                    self.messages.append({"role": "user", "content": f"Tool result: {result}"})
+        except Exception as e:
+            logger.error(f"LLM streaming error: {e}", exc_info=True)
+            if self.send_message:
+                await self.send_message({"type": "error", "message": f"LLM error: {e}"})
+            return
+
+        logger.info(f"LLM response: '{full_response[:100]}...' ({len(full_response)} chars)")
 
         if full_response and not self._interrupt_tts:
             self.messages.append({"role": "assistant", "content": full_response})
             if self.call_id:
-                db = get_supabase()
-                db.table("transcript_entries").insert({"call_id": self.call_id, "role": "assistant", "content": full_response}).execute()
+                try:
+                    db = get_supabase()
+                    db.table("transcript_entries").insert({"call_id": self.call_id, "role": "assistant", "content": full_response}).execute()
+                except Exception as e:
+                    logger.error(f"Failed to save transcript: {e}")
             if self.send_message:
                 await self.send_message({"type": "transcript", "role": "assistant", "content": full_response, "is_final": True})
             await self._speak(full_response)

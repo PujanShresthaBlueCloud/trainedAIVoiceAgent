@@ -13,6 +13,7 @@ async def stream_llm_response(
 ) -> AsyncGenerator[dict, None]:
     """Stream LLM response. Yields: text_delta, tool_call, done."""
     provider = _get_provider(model)
+    logger.info(f"LLM request: provider={provider}, model={model}, messages={len(messages)}")
 
     if provider == "openai":
         async for chunk in _stream_openai(messages, model, tools):

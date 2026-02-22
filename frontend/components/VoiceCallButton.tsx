@@ -1,5 +1,5 @@
 "use client";
-import { Phone, PhoneOff, Mic, MicOff } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Loader2 } from "lucide-react";
 import { useVoiceSession } from "@/lib/useVoiceSession";
 
 interface VoiceCallButtonProps {
@@ -11,7 +11,7 @@ export default function VoiceCallButton({
   agentId,
   size = "md",
 }: VoiceCallButtonProps) {
-  const { isConnected, isRecording, transcript, error, connect, disconnect } =
+  const { isConnected, isRecording, transcript, error, status, connect, disconnect } =
     useVoiceSession(agentId);
 
   const sizeClasses = {
@@ -20,16 +20,26 @@ export default function VoiceCallButton({
     lg: "px-6 py-3 text-base",
   };
 
+  const isConnecting = status === "connecting" || status === "requesting_mic";
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        {!isConnected ? (
+        {!isConnected && !isConnecting ? (
           <button
             onClick={connect}
             className={`${sizeClasses[size]} bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2 font-medium transition-colors`}
           >
             <Phone className="w-4 h-4" />
             Start Call
+          </button>
+        ) : isConnecting ? (
+          <button
+            disabled
+            className={`${sizeClasses[size]} bg-yellow-600 text-white rounded-lg flex items-center gap-2 font-medium opacity-80 cursor-wait`}
+          >
+            <Loader2 className="w-4 h-4 animate-spin" />
+            {status === "requesting_mic" ? "Requesting mic..." : "Connecting..."}
           </button>
         ) : (
           <button
@@ -58,7 +68,11 @@ export default function VoiceCallButton({
         )}
       </div>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+          <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+        </div>
+      )}
 
       {transcript.length > 0 && (
         <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 max-h-60 overflow-y-auto space-y-2 border border-gray-200 dark:border-gray-800">
@@ -68,7 +82,7 @@ export default function VoiceCallButton({
               <div key={i} className="text-sm">
                 <span
                   className={`font-medium ${
-                    entry.role === "user" ? "text-blue-400" : "text-green-400"
+                    entry.role === "user" ? "text-blue-600 dark:text-blue-400" : "text-green-600 dark:text-green-400"
                   }`}
                 >
                   {entry.role === "user" ? "You" : "AI"}:

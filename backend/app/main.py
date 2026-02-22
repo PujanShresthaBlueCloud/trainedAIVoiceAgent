@@ -1,11 +1,19 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import logging
 import traceback
 
 from app.routers import agents, calls, system_prompts, custom_functions, twilio_webhooks
 from app.ws.browser import router as ws_browser_router
 from app.ws.twilio import router as ws_twilio_router
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 app = FastAPI(title="Voice AI Platform", version="1.0.0")
 
@@ -44,6 +52,25 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.get("/api/diagnostics")
+async def diagnostics():
+    """Check which API keys are configured."""
+    from app.config import settings
+    return {
+        "supabase": bool(settings.SUPABASE_URL and settings.SUPABASE_KEY),
+        "deepgram": bool(settings.DEEPGRAM_API_KEY),
+        "elevenlabs": bool(settings.ELEVENLABS_API_KEY),
+        "openai": bool(settings.OPENAI_API_KEY),
+        "anthropic": bool(settings.ANTHROPIC_API_KEY),
+        "deepseek": bool(settings.DEEPSEEK_API_KEY),
+        "google": bool(settings.GOOGLE_API_KEY),
+        "groq": bool(settings.GROQ_API_KEY),
+        "twilio": bool(settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN),
+        "elevenlabs_voice_id": settings.ELEVENLABS_VOICE_ID,
+        "default_model": settings.OPENAI_MODEL,
+    }
 
 
 @app.post("/api/migrate")

@@ -10,19 +10,20 @@ ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1"
 async def synthesize_speech(
     text: str,
     voice_id: str | None = None,
-    model_id: str = "eleven_turbo_v2",
+    model_id: str = "eleven_multilingual_v2",
     output_format: str = "pcm_16000",
 ) -> AsyncGenerator[bytes, None]:
     voice = voice_id or settings.ELEVENLABS_VOICE_ID
-    url = f"{ELEVENLABS_API_URL}/text-to-speech/{voice}/stream"
+    url = f"{ELEVENLABS_API_URL}/text-to-speech/{voice}/stream?output_format={output_format}"
 
     headers = {"xi-api-key": settings.ELEVENLABS_API_KEY, "Content-Type": "application/json"}
     payload = {
         "text": text,
         "model_id": model_id,
-        "output_format": output_format,
         "voice_settings": {"stability": 0.5, "similarity_boost": 0.75, "style": 0.0, "use_speaker_boost": True},
     }
+
+    logger.info(f"TTS request: voice={voice}, model={model_id}, text_len={len(text)}")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
