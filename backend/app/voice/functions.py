@@ -1,7 +1,7 @@
 """Tool/function execution handlers."""
 import logging
 import httpx
-from database import get_supabase
+from app.database import get_supabase
 
 logger = logging.getLogger(__name__)
 

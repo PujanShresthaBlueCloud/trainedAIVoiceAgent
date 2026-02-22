@@ -3,9 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import traceback
 
-from routers import agents, calls, system_prompts, custom_functions, twilio_webhooks
-from ws.browser import router as ws_browser_router
-from ws.twilio import router as ws_twilio_router
+from app.routers import agents, calls, system_prompts, custom_functions, twilio_webhooks
+from app.ws.browser import router as ws_browser_router
+from app.ws.twilio import router as ws_twilio_router
 
 app = FastAPI(title="Voice AI Platform", version="1.0.0")
 
@@ -49,7 +49,7 @@ async def health():
 @app.post("/api/migrate")
 async def run_migration():
     """Run database migration to create tables in Supabase."""
-    from database import get_supabase, MIGRATION_SQL
+    from app.database import get_supabase, MIGRATION_SQL
     db = get_supabase()
     # Execute migration via Supabase RPC (requires running SQL in dashboard)
     return {

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import PlainTextResponse
-from database import get_supabase
-from config import settings
+from app.database import get_supabase
+from app.config import settings
 
 router = APIRouter()
 

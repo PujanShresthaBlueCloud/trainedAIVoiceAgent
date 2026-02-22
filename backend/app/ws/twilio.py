@@ -1,5 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from voice.session_twilio import TwilioVoiceSession
+from app.voice.session_twilio import TwilioVoiceSession
 import logging
 
 logger = logging.getLogger(__name__)

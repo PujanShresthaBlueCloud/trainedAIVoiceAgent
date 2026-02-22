@@ -1,7 +1,7 @@
 import logging
 from twilio.rest import Client
-from config import settings
-from database import get_supabase
+from app.config import settings
+from app.database import get_supabase
 
 logger = logging.getLogger(__name__)
 

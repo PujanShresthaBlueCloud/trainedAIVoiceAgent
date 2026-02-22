@@ -1,5 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
-from voice.session_browser import BrowserVoiceSession
+from app.voice.session_browser import BrowserVoiceSession
 import logging
 
 logger = logging.getLogger(__name__)

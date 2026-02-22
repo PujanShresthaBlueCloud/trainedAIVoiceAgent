@@ -1,7 +1,7 @@
 import logging
 from typing import AsyncGenerator
 import httpx
-from config import settings
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1"

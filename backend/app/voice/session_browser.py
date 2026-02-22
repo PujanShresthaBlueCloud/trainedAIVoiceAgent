@@ -3,7 +3,7 @@ import json
 import logging
 from fastapi import WebSocket
 
-from voice.session import VoiceSession
+from app.voice.session import VoiceSession
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class BrowserVoiceSession:
                 await self.session.end(reason="browser_disconnect")
 
     async def _create_call(self) -> str | None:
-        from database import get_supabase
+        from app.database import get_supabase
         db = get_supabase()
         result = db.table("calls").insert({"agent_id": self.agent_id, "direction": "browser", "status": "connecting"}).execute()
         return result.data[0]["id"] if result.data else None

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from typing import Callable, Awaitable
-from config import settings
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 

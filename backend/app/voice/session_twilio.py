@@ -2,9 +2,9 @@
 import json
 import logging
 from fastapi import WebSocket
-from voice.session import VoiceSession
-from voice.audio_codec import base64_mulaw_to_pcm16, pcm16_to_base64_mulaw
-from database import get_supabase
+from app.voice.session import VoiceSession
+from app.voice.audio_codec import base64_mulaw_to_pcm16, pcm16_to_base64_mulaw
+from app.database import get_supabase
 
 logger = logging.getLogger(__name__)
 

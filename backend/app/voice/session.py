@@ -3,12 +3,12 @@ import asyncio
 import logging
 import time
 from typing import Callable, Awaitable
-from database import get_supabase
-from services.llm import stream_llm_response
-from services.deepgram_stt import DeepgramSTT
-from services.elevenlabs_tts import synthesize_speech
-from voice.tools import get_tools_for_agent
-from voice.functions import execute_tool
+from app.database import get_supabase
+from app.services.llm import stream_llm_response
+from app.services.deepgram_stt import DeepgramSTT
+from app.services.elevenlabs_tts import synthesize_speech
+from app.voice.tools import get_tools_for_agent
+from app.voice.functions import execute_tool
 
 logger = logging.getLogger(__name__)
 
