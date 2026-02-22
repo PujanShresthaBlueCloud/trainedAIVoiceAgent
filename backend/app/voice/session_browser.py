@@ -1,0 +1,72 @@
+"""Browser WebSocket voice session — PCM16 audio."""
+import json
+import logging
+from fastapi import WebSocket
+
+from voice.session import VoiceSession
+
+logger = logging.getLogger(__name__)
+
+
+class BrowserVoiceSession:
+    def __init__(self, websocket: WebSocket, agent_id: str | None = None):
+        self.ws = websocket
+        self.agent_id = agent_id
+        self.session: VoiceSession | None = None
+
+    async def run(self):
+        try:
+            call_id = await self._create_call()
+        except Exception as e:
+            logger.error(f"Failed to create call record: {e}")
+            call_id = None
+
+        self.session = VoiceSession(
+            call_id=call_id, agent_id=self.agent_id,
+            send_audio=self._send_audio, send_message=self._send_message,
+        )
+
+        try:
+            await self.session.start()
+        except Exception as e:
+            logger.error(f"Session start failed: {e}")
+            await self._send_message({"type": "error", "message": f"Session start failed: {e}"})
+            return
+
+        try:
+            while True:
+                msg = await self.ws.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    break
+                if "bytes" in msg:
+                    await self.session.handle_audio(msg["bytes"])
+                elif "text" in msg:
+                    data = json.loads(msg["text"])
+                    if data.get("type") == "audio":
+                        import base64
+                        await self.session.handle_audio(base64.b64decode(data["data"]))
+                    elif data.get("type") == "end":
+                        break
+        except Exception as e:
+            logger.error(f"Browser WS error: {e}")
+        finally:
+            if self.session:
+                await self.session.end(reason="browser_disconnect")
+
+    async def _create_call(self) -> str | None:
+        from database import get_supabase
+        db = get_supabase()
+        result = db.table("calls").insert({"agent_id": self.agent_id, "direction": "browser", "status": "connecting"}).execute()
+        return result.data[0]["id"] if result.data else None
+
+    async def _send_audio(self, audio_bytes: bytes):
+        try:
+            await self.ws.send_bytes(audio_bytes)
+        except Exception as e:
+            logger.error(f"Send audio error: {e}")
+
+    async def _send_message(self, msg: dict):
+        try:
+            await self.ws.send_json(msg)
+        except Exception as e:
+            logger.error(f"Send message error: {e}")
