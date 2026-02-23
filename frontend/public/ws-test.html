@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head><title>WebSocket Test</title></head>
+<body>
+<h2>WebSocket Test</h2>
+<button onclick="testMinimal()">Test Minimal (port 9999)</button>
+<button onclick="testApp()">Test App (port 8000)</button>
+<button onclick="testRaw()">Test Raw HTTP Upgrade (port 8000)</button>
+<pre id="log"></pre>
+<script>
+const log = document.getElementById('log');
+function addLog(msg) { log.textContent += new Date().toISOString().substr(11,12) + ' ' + msg + '\n'; }
+
+function testMinimal() {
+  log.textContent = '';
+  addLog('Testing MINIMAL server ws://127.0.0.1:9999/ws/test');
+  const ws = new WebSocket('ws://127.0.0.1:9999/ws/test');
+  ws.onopen = () => addLog('OPEN');
+  ws.onclose = (e) => addLog('CLOSED code=' + e.code);
+  ws.onerror = () => addLog('ERROR');
+  ws.onmessage = (e) => addLog('MSG: ' + e.data);
+  setTimeout(() => addLog('state=' + ws.readyState), 3000);
+}
+
+function testApp() {
+  log.textContent = '';
+  addLog('Testing APP server ws://127.0.0.1:8000/ws/voice-browser');
+  const ws = new WebSocket('ws://127.0.0.1:8000/ws/voice-browser');
+  ws.onopen = () => addLog('OPEN');
+  ws.onclose = (e) => addLog('CLOSED code=' + e.code);
+  ws.onerror = () => addLog('ERROR');
+  ws.onmessage = (e) => addLog('MSG: ' + e.data);
+  setTimeout(() => addLog('state=' + ws.readyState), 3000);
+}
+
+function testRaw() {
+  log.textContent = '';
+  addLog('Testing HTTP upgrade via fetch...');
+  fetch('http://127.0.0.1:8000/ws/voice-browser')
+    .then(r => { addLog('HTTP status: ' + r.status); return r.text(); })
+    .then(t => addLog('Body: ' + t))
+    .catch(e => addLog('Fetch error: ' + e.message));
+}
+</script>
+</body>
+</html>

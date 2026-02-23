@@ -53,9 +53,16 @@ export function useVoiceSession(agentId?: string) {
     }
   }, []);
 
+  const nextPlayTime = useRef(0);
+
   const playAudio = useCallback((buffer: ArrayBuffer) => {
     const ctx = playbackContextRef.current;
     if (!ctx) return;
+
+    // Resume if suspended (browser autoplay policy)
+    if (ctx.state === "suspended") {
+      ctx.resume();
+    }
 
     const pcm16 = new Int16Array(buffer);
     const float32 = new Float32Array(pcm16.length);
@@ -69,7 +76,12 @@ export function useVoiceSession(agentId?: string) {
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(ctx.destination);
-    source.start();
+
+    // Schedule chunks sequentially so they don't overlap or have gaps
+    const now = ctx.currentTime;
+    const startTime = Math.max(now, nextPlayTime.current);
+    source.start(startTime);
+    nextPlayTime.current = startTime + audioBuffer.duration;
   }, []);
 
   const handleMessage = useCallback((msg: any) => {
@@ -133,6 +145,13 @@ export function useVoiceSession(agentId?: string) {
       }
 
       mediaStreamRef.current = stream;
+
+      // Create playback context during user gesture so autoplay is allowed
+      const playCtx = new AudioContext({ sampleRate: 16000 });
+      playbackContextRef.current = playCtx;
+      playCtx.resume();
+      nextPlayTime.current = 0;
+
       setState((s) => ({ ...s, status: "connecting" }));
 
       const url = `${WS_URL}/ws/voice-browser${agentId ? `?agent_id=${agentId}` : ""}`;
@@ -173,14 +192,13 @@ export function useVoiceSession(agentId?: string) {
 
         connectingRef.current = false;
 
-        // Create audio contexts
-        const audioCtx = new AudioContext({ sampleRate: 16000 });
+        // Use default sample rate (matches hardware, typically 48kHz)
+        const audioCtx = new AudioContext();
         audioContextRef.current = audioCtx;
-        playbackContextRef.current = new AudioContext({ sampleRate: 16000 });
 
-        // Resume audio context (needed for some browsers)
         audioCtx.resume().then(() => {
-          console.log("[VoiceSession] AudioContext resumed, starting audio capture");
+          const nativeSR = audioCtx.sampleRate;
+          console.log("[VoiceSession] Audio capture at", nativeSR, "Hz, downsampling to 16000 Hz");
 
           const source = audioCtx.createMediaStreamSource(stream);
           const processor = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -189,7 +207,8 @@ export function useVoiceSession(agentId?: string) {
           processor.onaudioprocess = (e) => {
             if (ws.readyState === WebSocket.OPEN) {
               const float32 = e.inputBuffer.getChannelData(0);
-              const pcm16 = float32ToPcm16(float32);
+              const downsampled = downsample(float32, nativeSR, 16000);
+              const pcm16 = float32ToPcm16(downsampled);
               ws.send(pcm16.buffer);
             }
           };
@@ -281,6 +300,18 @@ export function useVoiceSession(agentId?: string) {
   }, [cleanup]);
 
   return { ...state, connect, disconnect };
+}
+
+function downsample(buffer: Float32Array, inputRate: number, outputRate: number): Float32Array {
+  if (inputRate === outputRate) return buffer;
+  const ratio = inputRate / outputRate;
+  const newLength = Math.round(buffer.length / ratio);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const srcIndex = Math.floor(i * ratio);
+    result[i] = buffer[srcIndex];
+  }
+  return result;
 }
 
 function float32ToPcm16(float32: Float32Array): Int16Array {
