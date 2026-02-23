@@ -54,14 +54,33 @@ export function useVoiceSession(agentId?: string) {
   }, []);
 
   const nextPlayTime = useRef(0);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const audioChunkCount = useRef(0);
 
   const playAudio = useCallback((buffer: ArrayBuffer) => {
     const ctx = playbackContextRef.current;
-    if (!ctx) return;
+    if (!ctx) {
+      console.warn("[VoiceSession] playAudio: no playback context");
+      return;
+    }
+
+    if (buffer.byteLength === 0) {
+      return;
+    }
+
+    audioChunkCount.current++;
+    const chunkNum = audioChunkCount.current;
+
+    if (chunkNum <= 3 || chunkNum % 10 === 0) {
+      console.log(`[VoiceSession] playAudio chunk #${chunkNum}: ${buffer.byteLength} bytes, ctx.state=${ctx.state}, ctx.currentTime=${ctx.currentTime.toFixed(3)}, sampleRate=${ctx.sampleRate}`);
+    }
 
     // Resume if suspended (browser autoplay policy)
     if (ctx.state === "suspended") {
-      ctx.resume();
+      console.log("[VoiceSession] Resuming suspended AudioContext...");
+      ctx.resume().then(() => {
+        console.log("[VoiceSession] AudioContext resumed, state=", ctx.state);
+      });
     }
 
     const pcm16 = new Int16Array(buffer);
@@ -70,18 +89,59 @@ export function useVoiceSession(agentId?: string) {
       float32[i] = pcm16[i] / 32768;
     }
 
-    const audioBuffer = ctx.createBuffer(1, float32.length, 16000);
-    audioBuffer.getChannelData(0).set(float32);
+    // Check if audio has actual signal (not silence)
+    if (chunkNum <= 3) {
+      let maxVal = 0;
+      for (let i = 0; i < float32.length; i++) {
+        const abs = Math.abs(float32[i]);
+        if (abs > maxVal) maxVal = abs;
+      }
+      console.log(`[VoiceSession] chunk #${chunkNum}: ${pcm16.length} samples, peak=${maxVal.toFixed(4)}`);
+    }
+
+    // Create buffer at the context's actual sample rate (resample from 16kHz)
+    const contextSR = ctx.sampleRate;
+    let finalSamples: Float32Array;
+
+    if (contextSR !== 16000) {
+      // Upsample from 16kHz to context sample rate
+      const ratio = contextSR / 16000;
+      const newLength = Math.round(float32.length * ratio);
+      finalSamples = new Float32Array(newLength);
+      for (let i = 0; i < newLength; i++) {
+        const srcIdx = i / ratio;
+        const srcFloor = Math.floor(srcIdx);
+        const srcCeil = Math.min(srcFloor + 1, float32.length - 1);
+        const frac = srcIdx - srcFloor;
+        finalSamples[i] = float32[srcFloor] * (1 - frac) + float32[srcCeil] * frac;
+      }
+    } else {
+      finalSamples = float32;
+    }
+
+    const audioBuffer = ctx.createBuffer(1, finalSamples.length, contextSR);
+    audioBuffer.getChannelData(0).set(finalSamples);
 
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
-    source.connect(ctx.destination);
+
+    // Use gain node for volume control
+    if (!gainNodeRef.current || gainNodeRef.current.context !== ctx) {
+      gainNodeRef.current = ctx.createGain();
+      gainNodeRef.current.gain.value = 1.0;
+      gainNodeRef.current.connect(ctx.destination);
+    }
+    source.connect(gainNodeRef.current);
 
     // Schedule chunks sequentially so they don't overlap or have gaps
     const now = ctx.currentTime;
-    const startTime = Math.max(now, nextPlayTime.current);
+    const startTime = Math.max(now + 0.01, nextPlayTime.current);
     source.start(startTime);
     nextPlayTime.current = startTime + audioBuffer.duration;
+
+    if (chunkNum <= 3) {
+      console.log(`[VoiceSession] Scheduled chunk #${chunkNum}: startTime=${startTime.toFixed(3)}, duration=${audioBuffer.duration.toFixed(3)}s, contextSR=${contextSR}`);
+    }
   }, []);
 
   const handleMessage = useCallback((msg: any) => {
@@ -147,10 +207,14 @@ export function useVoiceSession(agentId?: string) {
       mediaStreamRef.current = stream;
 
       // Create playback context during user gesture so autoplay is allowed
-      const playCtx = new AudioContext({ sampleRate: 16000 });
+      // Use default sample rate (hardware rate) — we'll resample 16kHz audio to match
+      const playCtx = new AudioContext();
       playbackContextRef.current = playCtx;
-      playCtx.resume();
+      await playCtx.resume();
       nextPlayTime.current = 0;
+      audioChunkCount.current = 0;
+      gainNodeRef.current = null;
+      console.log("[VoiceSession] Playback AudioContext created: sampleRate=", playCtx.sampleRate, "state=", playCtx.state);
 
       setState((s) => ({ ...s, status: "connecting" }));
 
@@ -222,6 +286,9 @@ export function useVoiceSession(agentId?: string) {
 
       ws.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
+          if (event.data.byteLength > 0) {
+            console.log(`[VoiceSession] Received binary: ${event.data.byteLength} bytes`);
+          }
           playAudio(event.data);
         } else {
           try {

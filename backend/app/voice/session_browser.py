@@ -33,12 +33,16 @@ class BrowserVoiceSession:
             await self._send_message({"type": "error", "message": f"Session start failed: {e}"})
             return
 
+        audio_recv_count = 0
         try:
             while True:
                 msg = await self.ws.receive()
                 if msg.get("type") == "websocket.disconnect":
                     break
                 if "bytes" in msg:
+                    audio_recv_count += 1
+                    if audio_recv_count <= 3 or audio_recv_count % 100 == 0:
+                        logger.info(f"Received browser audio chunk #{audio_recv_count}: {len(msg['bytes'])} bytes")
                     await self.session.handle_audio(msg["bytes"])
                 elif "text" in msg:
                     data = json.loads(msg["text"])
@@ -59,8 +63,13 @@ class BrowserVoiceSession:
         result = db.table("calls").insert({"agent_id": self.agent_id, "direction": "browser", "status": "connecting"}).execute()
         return result.data[0]["id"] if result.data else None
 
+    _audio_chunk_count = 0
+
     async def _send_audio(self, audio_bytes: bytes):
         try:
+            self._audio_chunk_count += 1
+            if self._audio_chunk_count <= 5 or self._audio_chunk_count % 20 == 0:
+                logger.info(f"Sending audio chunk #{self._audio_chunk_count}: {len(audio_bytes)} bytes")
             await self.ws.send_bytes(audio_bytes)
         except Exception as e:
             logger.error(f"Send audio error: {e}")

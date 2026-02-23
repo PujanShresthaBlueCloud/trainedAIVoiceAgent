@@ -46,32 +46,46 @@ class DeepgramSTT:
             self._running = False
             self._ws = None
 
+    _send_count = 0
+
     async def send_audio(self, audio_bytes: bytes):
         if self._ws and self._running:
             try:
+                self._send_count += 1
+                if self._send_count <= 3 or self._send_count % 200 == 0:
+                    logger.info(f"Deepgram send_audio #{self._send_count}: {len(audio_bytes)} bytes")
                 await self._ws.send(audio_bytes)
             except Exception as e:
-                logger.error(f"Deepgram send error: {e}")
+                if self._send_count <= 5:
+                    logger.error(f"Deepgram send error: {e}")
 
     async def _receive_loop(self):
         import websockets
 
+        msg_count = 0
         try:
             async for msg in self._ws:
                 data = json.loads(msg)
-                if data.get("type") == "Results":
+                msg_count += 1
+                msg_type = data.get("type", "unknown")
+
+                if msg_type == "Results":
                     alternatives = data.get("channel", {}).get("alternatives", [])
                     if alternatives:
                         transcript = alternatives[0].get("transcript", "")
                         is_final = data.get("is_final", False)
                         if transcript.strip():
+                            logger.info(f"Deepgram transcript (final={is_final}): '{transcript}'")
                             await self.on_transcript(transcript, is_final)
-        except websockets.ConnectionClosed:
-            logger.info("Deepgram connection closed")
+                elif msg_count <= 5:
+                    logger.info(f"Deepgram msg #{msg_count}: type={msg_type}")
+        except websockets.ConnectionClosed as e:
+            logger.info(f"Deepgram connection closed: {e}")
         except Exception as e:
-            logger.error(f"Deepgram receive error: {e}")
+            logger.error(f"Deepgram receive error: {e}", exc_info=True)
         finally:
             self._running = False
+            logger.info(f"Deepgram receive loop ended after {msg_count} messages")
 
     async def close(self):
         self._running = False

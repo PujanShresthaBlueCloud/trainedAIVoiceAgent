@@ -83,12 +83,14 @@ class VoiceSession:
 
     async def handle_audio(self, audio_bytes: bytes):
         if self.stt:
-            if self._is_speaking:
-                self._interrupt_tts = True
-                self._is_speaking = False
             await self.stt.send_audio(audio_bytes)
 
     async def _on_transcript(self, text: str, is_final: bool):
+        # Interrupt TTS only when user actually speaks (detected by STT)
+        if self._is_speaking and text.strip():
+            logger.info(f"User speaking while TTS playing — interrupting TTS")
+            self._interrupt_tts = True
+            self._is_speaking = False
         if self.send_message:
             await self.send_message({"type": "transcript", "role": "user", "content": text, "is_final": is_final})
         if is_final and text.strip():
@@ -154,16 +156,23 @@ class VoiceSession:
 
     async def _speak(self, text: str):
         if not self.send_audio:
+            logger.warning("No send_audio callback — skipping TTS")
             return
         self._is_speaking = True
         self._interrupt_tts = False
+        chunk_count = 0
+        total_bytes = 0
         try:
             async for audio_chunk in synthesize_speech(text=text, voice_id=self.agent.get("voice_id")):
                 if self._interrupt_tts:
+                    logger.info("TTS interrupted by user")
                     break
+                chunk_count += 1
+                total_bytes += len(audio_chunk)
                 await self.send_audio(audio_chunk)
+            logger.info(f"TTS complete: {chunk_count} chunks, {total_bytes} bytes total")
         except Exception as e:
-            logger.error(f"TTS error: {e}")
+            logger.error(f"TTS error: {e}", exc_info=True)
         finally:
             self._is_speaking = False
 
