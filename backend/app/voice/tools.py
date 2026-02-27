@@ -1,4 +1,5 @@
 """Built-in tool definitions for voice agents."""
+from app.database import get_supabase
 
 BUILT_IN_TOOLS = {
     "end_call": {
@@ -52,4 +53,45 @@ BUILT_IN_TOOLS = {
 
 
 def get_tools_for_agent(tools_enabled: list[str]) -> list[dict]:
-    return [BUILT_IN_TOOLS[name] for name in tools_enabled if name in BUILT_IN_TOOLS]
+    """Return tool definitions for enabled tools, including custom functions from DB."""
+    tools = []
+    custom_names = []
+
+    for name in tools_enabled:
+        if name in BUILT_IN_TOOLS:
+            tools.append(BUILT_IN_TOOLS[name])
+        else:
+            custom_names.append(name)
+
+    # Load custom functions from database
+    if custom_names:
+        try:
+            db = get_supabase()
+            result = db.table("custom_functions").select("*").eq("is_active", True).in_("name", custom_names).execute()
+            for func in result.data or []:
+                params = func.get("parameters") or {}
+                tools.append({
+                    "name": func["name"],
+                    "description": func.get("description") or f"Custom function: {func['name']}",
+                    "parameters": params if params.get("type") else {
+                        "type": "object",
+                        "properties": params,
+                        "required": [],
+                    },
+                })
+        except Exception:
+            pass
+
+    return tools
+
+
+def get_custom_function_metadata(name: str) -> dict | None:
+    """Get full custom function record for speak hints etc."""
+    try:
+        db = get_supabase()
+        result = db.table("custom_functions").select("*").eq("name", name).eq("is_active", True).execute()
+        if result.data:
+            return result.data[0]
+    except Exception:
+        pass
+    return None

@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     TWILIO_PHONE_NUMBER: str = ""
     APP_URL: str = "http://localhost:8000"
 
+    # Knowledge Base / RAG
+    PINECONE_API_KEY: str = ""
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    CHUNK_SIZE: int = 500
+    CHUNK_OVERLAP: int = 50
+    RAG_TOP_K: int = 5
+
     model_config = {"env_file": str(_ENV_FILE), "extra": "ignore"}
 
 

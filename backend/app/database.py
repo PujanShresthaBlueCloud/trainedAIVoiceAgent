@@ -92,4 +92,40 @@ CREATE INDEX IF NOT EXISTS idx_calls_agent_id ON calls(agent_id);
 CREATE INDEX IF NOT EXISTS idx_calls_status ON calls(status);
 CREATE INDEX IF NOT EXISTS idx_transcript_entries_call_id ON transcript_entries(call_id);
 CREATE INDEX IF NOT EXISTS idx_function_call_logs_call_id ON function_call_logs(call_id);
+
+-- Enhanced custom functions columns
+ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS timeout_seconds INTEGER DEFAULT 30;
+ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;
+ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS response_mapping JSONB;
+ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS speak_during_execution TEXT;
+ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS speak_on_failure TEXT;
+
+-- Knowledge bases
+CREATE TABLE IF NOT EXISTS knowledge_bases (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    description TEXT,
+    provider TEXT NOT NULL DEFAULT 'pinecone',
+    config JSONB DEFAULT '{}'::jsonb,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_base_files (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    knowledge_base_id UUID REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    file_type TEXT,
+    file_size INTEGER,
+    chunk_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS knowledge_base_id UUID REFERENCES knowledge_bases(id);
+
+CREATE INDEX IF NOT EXISTS idx_kb_files_kb_id ON knowledge_base_files(knowledge_base_id);
 """

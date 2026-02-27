@@ -9,6 +9,7 @@ export interface Agent {
   tools_enabled: string[];
   is_active: boolean;
   metadata: Record<string, any> | null;
+  knowledge_base_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -58,6 +59,36 @@ export interface CustomFunction {
   method: string;
   headers: Record<string, any> | null;
   is_active: boolean;
+  timeout_seconds: number;
+  retry_count: number;
+  response_mapping: Record<string, string> | null;
+  speak_during_execution: string | null;
+  speak_on_failure: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  description: string | null;
+  provider: string;
+  config: Record<string, any>;
+  is_active: boolean;
+  file_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeBaseFile {
+  id: string;
+  knowledge_base_id: string;
+  filename: string;
+  file_type: string | null;
+  file_size: number | null;
+  chunk_count: number;
+  status: string;
+  error_message: string | null;
   created_at: string;
   updated_at: string;
 }

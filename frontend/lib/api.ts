@@ -13,6 +13,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Agents
   listAgents: () => request<any[]>("/api/agents"),
   getAgent: (id: string) => request<any>(`/api/agents/${id}`),
   createAgent: (data: any) =>
@@ -22,6 +23,7 @@ export const api = {
   deleteAgent: (id: string) =>
     request<any>(`/api/agents/${id}`, { method: "DELETE" }),
 
+  // Calls
   listCalls: () => request<any[]>("/api/calls"),
   getCall: (id: string) => request<any>(`/api/calls/${id}`),
   getTranscript: (id: string) => request<any[]>(`/api/calls/${id}/transcript`),
@@ -33,6 +35,7 @@ export const api = {
   deleteCall: (id: string) =>
     request<any>(`/api/calls/${id}`, { method: "DELETE" }),
 
+  // System Prompts
   listSystemPrompts: () => request<any[]>("/api/system-prompts"),
   createSystemPrompt: (data: any) =>
     request<any>("/api/system-prompts", { method: "POST", body: JSON.stringify(data) }),
@@ -41,6 +44,7 @@ export const api = {
   deleteSystemPrompt: (id: string) =>
     request<any>(`/api/system-prompts/${id}`, { method: "DELETE" }),
 
+  // Custom Functions
   listCustomFunctions: () => request<any[]>("/api/custom-functions"),
   createCustomFunction: (data: any) =>
     request<any>("/api/custom-functions", { method: "POST", body: JSON.stringify(data) }),
@@ -48,4 +52,34 @@ export const api = {
     request<any>(`/api/custom-functions/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteCustomFunction: (id: string) =>
     request<any>(`/api/custom-functions/${id}`, { method: "DELETE" }),
+  testCustomFunction: (id: string) =>
+    request<any>(`/api/custom-functions/${id}/test`, { method: "POST" }),
+
+  // Knowledge Bases
+  listKnowledgeBases: () => request<any[]>("/api/knowledge-bases"),
+  getKnowledgeBase: (id: string) => request<any>(`/api/knowledge-bases/${id}`),
+  createKnowledgeBase: (data: any) =>
+    request<any>("/api/knowledge-bases", { method: "POST", body: JSON.stringify(data) }),
+  updateKnowledgeBase: (id: string, data: any) =>
+    request<any>(`/api/knowledge-bases/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteKnowledgeBase: (id: string) =>
+    request<any>(`/api/knowledge-bases/${id}`, { method: "DELETE" }),
+
+  // Knowledge Base Files
+  listKBFiles: (kbId: string) => request<any[]>(`/api/knowledge-bases/${kbId}/files`),
+  uploadKBFile: async (kbId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`${API_URL}/api/knowledge-bases/${kbId}/files`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API Error ${res.status}: ${text}`);
+    }
+    return res.json();
+  },
+  deleteKBFile: (kbId: string, fileId: string) =>
+    request<any>(`/api/knowledge-bases/${kbId}/files/${fileId}`, { method: "DELETE" }),
 };

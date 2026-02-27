@@ -7,6 +7,7 @@ import {
   Phone,
   MessageSquare,
   Code2,
+  Database,
   Settings,
   Zap,
   Sun,
@@ -20,6 +21,7 @@ const navItems = [
   { href: "/calls", label: "Calls", icon: Phone },
   { href: "/system-prompts", label: "System Prompts", icon: MessageSquare },
   { href: "/custom-functions", label: "Custom Functions", icon: Code2 },
+  { href: "/knowledge-base", label: "Knowledge Base", icon: Database },
 ];
 
 export default function Sidebar() {

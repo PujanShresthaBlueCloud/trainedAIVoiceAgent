@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Agent } from "@/types";
+import { Agent, CustomFunction, KnowledgeBase } from "@/types";
 import TestCallSection from "@/components/TestCallSection";
-import { Bot, Plus, Pencil, Trash2, X, Phone } from "lucide-react";
+import { Bot, Plus, Pencil, Trash2, X, Phone, Database } from "lucide-react";
 
 const LLM_MODELS = [
   "gpt-4",
@@ -17,7 +17,7 @@ const LLM_MODELS = [
   "mixtral-8x7b-32768",
 ];
 
-const AVAILABLE_TOOLS = [
+const BUILT_IN_TOOLS = [
   "end_call",
   "transfer_call",
   "check_availability",
@@ -30,6 +30,8 @@ export default function AgentsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Agent | null>(null);
   const [testAgent, setTestAgent] = useState<Agent | null>(null);
+  const [customFunctions, setCustomFunctions] = useState<CustomFunction[]>([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -39,6 +41,7 @@ export default function AgentsPage() {
     llm_model: "gpt-4",
     tools_enabled: [] as string[],
     is_active: true,
+    knowledge_base_id: "" as string,
   });
 
   const loadAgents = async () => {
@@ -52,8 +55,22 @@ export default function AgentsPage() {
     }
   };
 
+  const loadExtras = async () => {
+    try {
+      const [funcs, kbs] = await Promise.all([
+        api.listCustomFunctions(),
+        api.listKnowledgeBases(),
+      ]);
+      setCustomFunctions(funcs.filter((f: CustomFunction) => f.is_active));
+      setKnowledgeBases(kbs.filter((kb: KnowledgeBase) => kb.is_active));
+    } catch (e) {
+      console.error("Failed to load extras:", e);
+    }
+  };
+
   useEffect(() => {
     loadAgents();
+    loadExtras();
   }, []);
 
   const resetForm = () => {
@@ -66,6 +83,7 @@ export default function AgentsPage() {
       llm_model: "gpt-4",
       tools_enabled: [],
       is_active: true,
+      knowledge_base_id: "",
     });
     setEditing(null);
   };
@@ -86,16 +104,21 @@ export default function AgentsPage() {
       llm_model: agent.llm_model,
       tools_enabled: agent.tools_enabled || [],
       is_active: agent.is_active,
+      knowledge_base_id: agent.knowledge_base_id || "",
     });
     setShowModal(true);
   };
 
   const handleSave = async () => {
     try {
+      const payload = {
+        ...form,
+        knowledge_base_id: form.knowledge_base_id || undefined,
+      };
       if (editing) {
-        await api.updateAgent(editing.id, form);
+        await api.updateAgent(editing.id, payload);
       } else {
-        await api.createAgent(form);
+        await api.createAgent(payload);
       }
       setShowModal(false);
       resetForm();
@@ -187,13 +210,30 @@ export default function AgentsPage() {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-3 line-clamp-2">{agent.description}</p>
               )}
 
-              <div className="flex flex-wrap gap-1 mb-4">
-                {(agent.tools_enabled || []).map((tool) => (
-                  <span key={tool} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-500 dark:text-gray-400">
-                    {tool}
-                  </span>
-                ))}
+              <div className="flex flex-wrap gap-1 mb-2">
+                {(agent.tools_enabled || []).map((tool) => {
+                  const isCustom = !BUILT_IN_TOOLS.includes(tool);
+                  return (
+                    <span
+                      key={tool}
+                      className={`px-2 py-0.5 rounded text-xs ${
+                        isCustom
+                          ? "bg-amber-50 dark:bg-amber-600/20 text-amber-600 dark:text-amber-400"
+                          : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                      }`}
+                    >
+                      {tool}
+                    </span>
+                  );
+                })}
               </div>
+
+              {agent.knowledge_base_id && (
+                <div className="flex items-center gap-1 mb-3">
+                  <Database className="w-3 h-3 text-purple-400" />
+                  <span className="text-xs text-purple-400">Knowledge Base</span>
+                </div>
+              )}
 
               <div className="flex items-center gap-2">
                 <button
@@ -294,10 +334,12 @@ export default function AgentsPage() {
                   className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                 />
               </div>
+
+              {/* Tools - Built-in */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tools</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Built-in Tools</label>
                 <div className="flex flex-wrap gap-2">
-                  {AVAILABLE_TOOLS.map((tool) => (
+                  {BUILT_IN_TOOLS.map((tool) => (
                     <button
                       key={tool}
                       onClick={() => toggleTool(tool)}
@@ -312,6 +354,46 @@ export default function AgentsPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Tools - Custom Functions */}
+              {customFunctions.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Custom Functions</label>
+                  <div className="flex flex-wrap gap-2">
+                    {customFunctions.map((fn) => (
+                      <button
+                        key={fn.name}
+                        onClick={() => toggleTool(fn.name)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          form.tools_enabled.includes(fn.name)
+                            ? "bg-amber-600 text-white"
+                            : "bg-amber-50 dark:bg-amber-600/10 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-600/20"
+                        }`}
+                        title={fn.description || fn.name}
+                      >
+                        {fn.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Knowledge Base selector */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Knowledge Base</label>
+                <select
+                  value={form.knowledge_base_id}
+                  onChange={(e) => setForm({ ...form, knowledge_base_id: e.target.value })}
+                  className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                >
+                  <option value="">None</option>
+                  {knowledgeBases.map((kb) => (
+                    <option key={kb.id} value={kb.id}>{kb.name} ({kb.provider})</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">Enables RAG — agent will search the knowledge base for relevant context</p>
+              </div>
+
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"

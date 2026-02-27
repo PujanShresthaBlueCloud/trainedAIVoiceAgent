@@ -1,5 +1,7 @@
 import logging
 import struct
+import asyncio
+import io
 from typing import AsyncGenerator
 import httpx
 from app.config import settings
@@ -14,7 +16,7 @@ async def synthesize_speech(
     model_id: str = "eleven_multilingual_v2",
     output_format: str = "pcm_16000",
 ) -> AsyncGenerator[bytes, None]:
-    """Try ElevenLabs first, fall back to OpenAI TTS if quota exceeded."""
+    """Try ElevenLabs → OpenAI → gTTS (free) fallback chain."""
 
     # Try ElevenLabs
     if settings.ELEVENLABS_API_KEY:
@@ -25,19 +27,28 @@ async def synthesize_speech(
                 yield chunk
             if chunks_yielded > 0:
                 return
-            # If no chunks yielded, ElevenLabs failed — fall through to OpenAI
-            logger.warning("ElevenLabs returned no audio chunks, trying OpenAI TTS fallback")
+            logger.warning("ElevenLabs returned no audio, trying fallbacks")
         except Exception as e:
-            logger.warning(f"ElevenLabs TTS failed: {e}, trying OpenAI TTS fallback")
+            logger.warning(f"ElevenLabs TTS failed: {e}, trying fallbacks")
 
     # Fallback: OpenAI TTS
     if settings.OPENAI_API_KEY:
-        logger.info("Using OpenAI TTS fallback")
-        async for chunk in _openai_tts(text):
-            yield chunk
-        return
+        try:
+            chunks_yielded = 0
+            logger.info("Trying OpenAI TTS fallback")
+            async for chunk in _openai_tts(text):
+                chunks_yielded += 1
+                yield chunk
+            if chunks_yielded > 0:
+                return
+            logger.warning("OpenAI TTS returned no audio, trying gTTS fallback")
+        except Exception as e:
+            logger.warning(f"OpenAI TTS failed: {e}, trying gTTS fallback")
 
-    logger.error("No TTS provider available (ElevenLabs quota exceeded, no OpenAI key)")
+    # Final fallback: gTTS (free, no API key needed)
+    logger.info("Using gTTS (free) fallback")
+    async for chunk in _gtts_tts(text):
+        yield chunk
 
 
 async def _elevenlabs_tts(
@@ -70,10 +81,7 @@ async def _elevenlabs_tts(
 
 
 async def _openai_tts(text: str) -> AsyncGenerator[bytes, None]:
-    """OpenAI TTS — returns PCM16 at 16kHz (converted from WAV output)."""
-    import io
-    import wave
-
+    """OpenAI TTS — returns PCM16 at 24kHz, resampled to 16kHz."""
     url = "https://api.openai.com/v1/audio/speech"
     headers = {
         "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
@@ -83,7 +91,7 @@ async def _openai_tts(text: str) -> AsyncGenerator[bytes, None]:
         "model": "tts-1",
         "input": text,
         "voice": "alloy",
-        "response_format": "pcm",  # raw PCM16 at 24kHz
+        "response_format": "pcm",
     }
 
     logger.info(f"OpenAI TTS request: text_len={len(text)}")
@@ -95,42 +103,105 @@ async def _openai_tts(text: str) -> AsyncGenerator[bytes, None]:
                 logger.error(f"OpenAI TTS error {resp.status_code}: {body}")
                 return
 
-            # OpenAI PCM format is 24kHz 16-bit mono — resample to 16kHz
             buffer = bytearray()
             async for chunk in resp.aiter_bytes(chunk_size=8192):
                 if chunk:
                     buffer.extend(chunk)
-                    # Process complete sample pairs (2 bytes per sample)
-                    while len(buffer) >= 6:  # need at least 3 samples for ratio 1.5
-                        # Process in ~4096 byte output blocks
-                        # Input: 24kHz, Output: 16kHz, ratio = 1.5
-                        input_samples = len(buffer) // 2
-                        output_samples = int(input_samples / 1.5)
-                        if output_samples < 100:
-                            break  # wait for more data
-                        # Consume exactly the input samples needed
-                        needed_input = int(output_samples * 1.5) + 1
-                        needed_bytes = needed_input * 2
-                        if needed_bytes > len(buffer):
-                            needed_input = len(buffer) // 2
-                            needed_bytes = needed_input * 2
-                            output_samples = int(needed_input / 1.5)
-                            if output_samples < 100:
-                                break
-
-                        input_data = bytes(buffer[:needed_bytes])
-                        del buffer[:needed_bytes]
-
-                        # Resample 24kHz -> 16kHz using linear interpolation
-                        pcm_out = _resample_pcm16(input_data, 24000, 16000)
+                    while len(buffer) >= 600:
+                        take = min(len(buffer), 6000)
+                        take = take - (take % 2)
+                        pcm_out = _resample_pcm16(bytes(buffer[:take]), 24000, 16000)
+                        del buffer[:take]
                         if pcm_out:
                             yield pcm_out
 
-            # Process remaining buffer
             if len(buffer) >= 4:
                 pcm_out = _resample_pcm16(bytes(buffer), 24000, 16000)
                 if pcm_out:
                     yield pcm_out
+
+
+async def _gtts_tts(text: str) -> AsyncGenerator[bytes, None]:
+    """Free Google TTS via gTTS — converts MP3 to PCM16 16kHz."""
+    try:
+        from gtts import gTTS
+    except ImportError:
+        logger.error("gTTS not installed. Run: pip install gTTS")
+        return
+
+    logger.info(f"gTTS request: text_len={len(text)}")
+
+    # gTTS is synchronous, run in executor
+    def _generate_mp3() -> bytes:
+        tts = gTTS(text=text, lang="en")
+        mp3_buf = io.BytesIO()
+        tts.write_to_fp(mp3_buf)
+        return mp3_buf.getvalue()
+
+    try:
+        mp3_data = await asyncio.get_event_loop().run_in_executor(None, _generate_mp3)
+    except Exception as e:
+        logger.error(f"gTTS generation error: {e}")
+        return
+
+    if not mp3_data:
+        logger.error("gTTS returned empty MP3")
+        return
+
+    logger.info(f"gTTS generated {len(mp3_data)} bytes MP3, converting to PCM16")
+
+    # Convert MP3 to PCM16 16kHz using ffmpeg (commonly available on macOS/Linux)
+    pcm_data = await _mp3_to_pcm16(mp3_data)
+    if not pcm_data:
+        return
+
+    logger.info(f"gTTS converted to {len(pcm_data)} bytes PCM16")
+
+    # Yield in chunks
+    chunk_size = 4096
+    for i in range(0, len(pcm_data), chunk_size):
+        yield pcm_data[i:i + chunk_size]
+
+
+async def _mp3_to_pcm16(mp3_data: bytes) -> bytes | None:
+    """Convert MP3 bytes to PCM16 mono 16kHz using ffmpeg."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-i", "pipe:0",
+            "-f", "s16le", "-acodec", "pcm_s16le",
+            "-ar", "16000", "-ac", "1",
+            "pipe:1",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate(input=mp3_data)
+        if proc.returncode != 0:
+            logger.error(f"ffmpeg error: {stderr.decode()[:200]}")
+            return None
+        return stdout
+    except FileNotFoundError:
+        logger.error("ffmpeg not found. Install it: brew install ffmpeg")
+        # Try pydub as alternative
+        return _mp3_to_pcm16_pydub(mp3_data)
+    except Exception as e:
+        logger.error(f"MP3 to PCM conversion error: {e}")
+        return None
+
+
+def _mp3_to_pcm16_pydub(mp3_data: bytes) -> bytes | None:
+    """Fallback: convert MP3 to PCM16 using pydub (if available)."""
+    try:
+        from pydub import AudioSegment
+        audio = AudioSegment.from_mp3(io.BytesIO(mp3_data))
+        audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+        return audio.raw_data
+    except ImportError:
+        logger.error("Neither ffmpeg nor pydub available for MP3 conversion")
+        return None
+    except Exception as e:
+        logger.error(f"pydub conversion error: {e}")
+        return None
 
 
 def _resample_pcm16(data: bytes, from_rate: int, to_rate: int) -> bytes:

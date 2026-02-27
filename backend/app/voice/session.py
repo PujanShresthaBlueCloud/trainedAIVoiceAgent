@@ -7,7 +7,7 @@ from app.database import get_supabase
 from app.services.llm import stream_llm_response
 from app.services.deepgram_stt import DeepgramSTT
 from app.services.elevenlabs_tts import synthesize_speech
-from app.voice.tools import get_tools_for_agent
+from app.voice.tools import get_tools_for_agent, get_custom_function_metadata, BUILT_IN_TOOLS
 from app.voice.functions import execute_tool
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,41 @@ class VoiceSession:
         if is_final and text.strip():
             await self._process_user_message(text)
 
+    async def _get_rag_context(self, user_message: str) -> str | None:
+        """Embed user query, search knowledge base, return top-k text chunks."""
+        kb_id = self.agent.get("knowledge_base_id") if self.agent else None
+        if not kb_id:
+            return None
+
+        try:
+            db = get_supabase()
+            kb_result = db.table("knowledge_bases").select("*").eq("id", kb_id).eq("is_active", True).execute()
+            if not kb_result.data:
+                return None
+
+            kb = kb_result.data[0]
+            from app.services.vector_db import get_provider
+            from app.services.document_processor import generate_embedding
+            from app.config import settings
+
+            provider = get_provider(kb["provider"], kb.get("config", {}))
+            embedding = await generate_embedding(user_message)
+            results = await provider.query(embedding, top_k=settings.RAG_TOP_K, namespace=kb.get("config", {}).get("namespace"))
+
+            if not results:
+                return None
+
+            chunks = [r["text"] for r in results if r.get("text")]
+            if not chunks:
+                return None
+
+            context = "\n\n---\n\n".join(chunks)
+            logger.info(f"RAG context retrieved: {len(chunks)} chunks for KB {kb['name']}")
+            return context
+        except Exception as e:
+            logger.error(f"RAG context retrieval error: {e}")
+            return None
+
     async def _process_user_message(self, text: str):
         logger.info(f"Processing user message: '{text[:80]}...' model={self.agent.get('llm_model', 'gpt-4')}")
         self.messages.append({"role": "user", "content": text})
@@ -107,9 +142,25 @@ class VoiceSession:
             except Exception as e:
                 logger.error(f"Failed to save transcript: {e}")
 
+        # Inject RAG context if knowledge base is configured
+        rag_context = await self._get_rag_context(text)
+        if rag_context:
+            rag_message = {
+                "role": "system",
+                "content": f"Relevant knowledge base context (use this to answer the user's question):\n\n{rag_context}",
+            }
+            self.messages.insert(-1, rag_message)
+            logger.info("Injected RAG context into conversation")
+
         tools = get_tools_for_agent(self.agent.get("tools_enabled", []))
         full_response = ""
         self._interrupt_tts = False
+
+        # Build call context for custom function webhook bodies
+        call_context = {"call_id": self.call_id} if self.call_id else {}
+        recent_transcript = [m["content"] for m in self.messages[-6:] if m["role"] in ("user", "assistant")]
+        if recent_transcript:
+            call_context["recent_transcript"] = recent_transcript
 
         try:
             async for chunk in stream_llm_response(
@@ -126,13 +177,35 @@ class VoiceSession:
                         await self.send_message({"type": "transcript", "role": "assistant", "content": chunk["content"], "is_final": False})
 
                 elif chunk["type"] == "tool_call":
-                    result = await execute_tool(self.call_id, chunk["name"], chunk["arguments"])
+                    tool_name = chunk["name"]
+
+                    # Speak filler text while custom function executes
+                    filler_task = None
+                    if tool_name not in BUILT_IN_TOOLS:
+                        func_meta = get_custom_function_metadata(tool_name)
+                        speak_text = func_meta.get("speak_during_execution") if func_meta else None
+                        if speak_text:
+                            filler_task = asyncio.create_task(self._speak(speak_text))
+
+                    result = await execute_tool(self.call_id, tool_name, chunk["arguments"], call_context=call_context)
+
+                    # Cancel filler if still playing
+                    if filler_task and not filler_task.done():
+                        self._interrupt_tts = True
+                        await asyncio.sleep(0.1)
+                        self._interrupt_tts = False
+
                     if self.send_message:
-                        await self.send_message({"type": "tool_call", "name": chunk["name"], "arguments": chunk["arguments"], "result": result})
+                        await self.send_message({"type": "tool_call", "name": tool_name, "arguments": chunk["arguments"], "result": result})
+
+                    # Speak failure message if webhook failed
+                    if result.get("error") and result.get("_speak_on_failure"):
+                        await self._speak(result["_speak_on_failure"])
+
                     if result.get("action") == "end_call":
                         await self.end(reason=result.get("reason", "agent_ended"))
                         return
-                    self.messages.append({"role": "assistant", "content": f"[Called {chunk['name']}]"})
+                    self.messages.append({"role": "assistant", "content": f"[Called {tool_name}]"})
                     self.messages.append({"role": "user", "content": f"Tool result: {result}"})
         except Exception as e:
             logger.error(f"LLM streaming error: {e}", exc_info=True)

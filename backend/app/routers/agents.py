@@ -16,6 +16,7 @@ class AgentCreate(BaseModel):
     tools_enabled: Optional[list] = []
     is_active: Optional[bool] = True
     metadata: Optional[dict] = None
+    knowledge_base_id: Optional[str] = None
 
 
 class AgentUpdate(BaseModel):
@@ -28,6 +29,7 @@ class AgentUpdate(BaseModel):
     tools_enabled: Optional[list] = None
     is_active: Optional[bool] = None
     metadata: Optional[dict] = None
+    knowledge_base_id: Optional[str] = None
 
 
 @router.get("")

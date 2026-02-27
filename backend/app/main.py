@@ -5,7 +5,7 @@ from starlette.types import ASGIApp, Scope, Receive, Send
 import logging
 import traceback
 
-from app.routers import agents, calls, system_prompts, custom_functions, twilio_webhooks
+from app.routers import agents, calls, system_prompts, custom_functions, twilio_webhooks, knowledge_bases
 from app.voice.session_browser import BrowserVoiceSession
 
 logging.basicConfig(
@@ -72,6 +72,7 @@ app.include_router(calls.router, prefix="/api/calls", tags=["calls"])
 app.include_router(system_prompts.router, prefix="/api/system-prompts", tags=["system-prompts"])
 app.include_router(custom_functions.router, prefix="/api/custom-functions", tags=["custom-functions"])
 app.include_router(twilio_webhooks.router, prefix="/api/twilio", tags=["twilio"])
+app.include_router(knowledge_bases.router, prefix="/api/knowledge-bases", tags=["knowledge-bases"])
 
 
 # WebSocket endpoint directly on app — no router indirection
