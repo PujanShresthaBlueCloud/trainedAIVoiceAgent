@@ -31,13 +31,20 @@ class KBUpdate(BaseModel):
 @router.get("")
 async def list_knowledge_bases():
     db = get_supabase()
-    result = db.table("knowledge_bases").select("*").order("created_at", desc=True).execute()
+    try:
+        result = db.table("knowledge_bases").select("*").order("created_at", desc=True).execute()
+    except Exception as e:
+        logger.warning(f"knowledge_bases table may not exist yet: {e}")
+        return []
 
     # Attach file counts
     kbs = result.data or []
     for kb in kbs:
-        files_result = db.table("knowledge_base_files").select("id", count="exact").eq("knowledge_base_id", kb["id"]).execute()
-        kb["file_count"] = files_result.count if hasattr(files_result, "count") and files_result.count is not None else len(files_result.data or [])
+        try:
+            files_result = db.table("knowledge_base_files").select("id", count="exact").eq("knowledge_base_id", kb["id"]).execute()
+            kb["file_count"] = files_result.count if hasattr(files_result, "count") and files_result.count is not None else len(files_result.data or [])
+        except Exception:
+            kb["file_count"] = 0
 
     return kbs
 
