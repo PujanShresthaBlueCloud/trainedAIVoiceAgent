@@ -47,7 +47,7 @@ async def get_transcript(call_id: str):
 
 @router.post("/outbound")
 async def make_outbound_call(req: OutboundCallRequest):
-    from services.twilio_service import make_outbound_call as twilio_call
+    from app.services.twilio_service import make_outbound_call as twilio_call
     result = await twilio_call(req.agent_id, req.to_number)
     return result
 

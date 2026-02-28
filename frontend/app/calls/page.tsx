@@ -9,6 +9,8 @@ import {
   Trash2,
   MessageSquare,
   X,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 
 export default function CallsPage() {
@@ -19,10 +21,22 @@ export default function CallsPage() {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [showOutbound, setShowOutbound] = useState(false);
   const [outboundForm, setOutboundForm] = useState({ agent_id: "", to_number: "" });
+  const [phoneError, setPhoneError] = useState("");
+  const [publicUrl, setPublicUrl] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
+    loadDiagnostics();
   }, []);
+
+  const loadDiagnostics = async () => {
+    try {
+      const diag = await api.getDiagnostics();
+      setPublicUrl(diag.public_url || null);
+    } catch (e) {
+      console.error("Failed to load diagnostics:", e);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -49,8 +63,17 @@ export default function CallsPage() {
     }
   };
 
+  const validateE164 = (number: string): boolean => {
+    return /^\+[1-9]\d{1,14}$/.test(number);
+  };
+
   const handleOutboundCall = async () => {
     if (!outboundForm.agent_id || !outboundForm.to_number) return;
+    if (!validateE164(outboundForm.to_number)) {
+      setPhoneError("Phone number must be in E.164 format (e.g. +12125551234)");
+      return;
+    }
+    setPhoneError("");
     try {
       await api.makeOutboundCall(outboundForm.agent_id, outboundForm.to_number);
       setShowOutbound(false);
@@ -93,7 +116,15 @@ export default function CallsPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Calls</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Call history and outbound calls</p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-gray-500 dark:text-gray-400">Call history and outbound calls</p>
+            {publicUrl && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400">
+                {publicUrl.includes("ngrok") ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                {publicUrl.includes("ngrok") ? "Tunnel Active" : "Local Only"}
+              </span>
+            )}
+          </div>
         </div>
         <button
           onClick={() => setShowOutbound(true)}
@@ -212,10 +243,18 @@ export default function CallsPage() {
                 <input
                   type="tel"
                   value={outboundForm.to_number}
-                  onChange={(e) => setOutboundForm({ ...outboundForm, to_number: e.target.value })}
-                  placeholder="+1234567890"
-                  className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-green-500"
+                  onChange={(e) => {
+                    setOutboundForm({ ...outboundForm, to_number: e.target.value });
+                    setPhoneError("");
+                  }}
+                  placeholder="+12125551234"
+                  className={`w-full bg-gray-100 dark:bg-gray-800 border rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-green-500 ${
+                    phoneError ? "border-red-500" : "border-gray-300 dark:border-gray-700"
+                  }`}
                 />
+                {phoneError && (
+                  <p className="text-xs text-red-500 mt-1">{phoneError}</p>
+                )}
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex justify-end gap-3">

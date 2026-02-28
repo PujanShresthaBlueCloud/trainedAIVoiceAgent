@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import PlainTextResponse
 from app.database import get_supabase
-from app.config import settings
+from app.services.ngrok_service import get_public_url
 
 router = APIRouter()
 
@@ -15,10 +15,27 @@ async def incoming_call(request: Request):
     form = await request.form()
     call_sid = form.get("CallSid", "")
     caller = form.get("From", "")
+    to_number = form.get("To", "")
 
     db = get_supabase()
-    agents = db.table("agents").select("id").eq("is_active", True).limit(1).execute()
-    agent_id = agents.data[0]["id"] if agents.data else None
+
+    # Per-number agent routing: look up the called number
+    agent_id = None
+    if to_number:
+        pn_result = (
+            db.table("phone_numbers")
+            .select("agent_id")
+            .eq("phone_number", to_number)
+            .eq("is_active", True)
+            .execute()
+        )
+        if pn_result.data and pn_result.data[0].get("agent_id"):
+            agent_id = pn_result.data[0]["agent_id"]
+
+    # Fallback: first active agent
+    if not agent_id:
+        agents = db.table("agents").select("id").eq("is_active", True).limit(1).execute()
+        agent_id = agents.data[0]["id"] if agents.data else None
 
     db.table("calls").insert({
         "agent_id": agent_id,
@@ -28,7 +45,8 @@ async def incoming_call(request: Request):
         "status": "ringing",
     }).execute()
 
-    ws_url = settings.APP_URL.replace("http", "ws") + "/ws/voice-twilio"
+    public_url = get_public_url()
+    ws_url = public_url.replace("https", "wss").replace("http", "ws") + "/ws/voice-twilio"
 
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -46,7 +64,8 @@ async def outbound_connect(request: Request):
     form = await request.form()
     call_sid = form.get("CallSid", "")
 
-    ws_url = settings.APP_URL.replace("http", "ws") + "/ws/voice-twilio"
+    public_url = get_public_url()
+    ws_url = public_url.replace("https", "wss").replace("http", "ws") + "/ws/voice-twilio"
 
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>

@@ -129,6 +129,19 @@ ALTER TABLE agents ADD COLUMN IF NOT EXISTS knowledge_base_id UUID REFERENCES kn
 
 CREATE INDEX IF NOT EXISTS idx_kb_files_kb_id ON knowledge_base_files(knowledge_base_id);
 
+-- Phone numbers for per-number agent routing
+CREATE TABLE IF NOT EXISTS phone_numbers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    phone_number TEXT NOT NULL UNIQUE,
+    agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
+    friendly_name TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_phone_numbers_phone ON phone_numbers(phone_number);
+
 -- New custom function columns for query params, payload mode, and store variables
 ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS query_params JSONB;
 ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS payload_mode TEXT DEFAULT 'args_only';

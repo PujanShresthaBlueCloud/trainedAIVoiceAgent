@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""
     APP_URL: str = "http://localhost:8000"
+    NGROK_AUTHTOKEN: str = ""
 
     # Knowledge Base / RAG
     PINECONE_API_KEY: str = ""

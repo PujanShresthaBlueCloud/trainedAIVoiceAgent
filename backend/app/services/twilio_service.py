@@ -2,6 +2,7 @@ import logging
 from twilio.rest import Client
 from app.config import settings
 from app.database import get_supabase
+from app.services.ngrok_service import get_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +19,13 @@ async def make_outbound_call(agent_id: str, to_number: str) -> dict:
     if not agent_result.data:
         raise ValueError(f"Agent {agent_id} not found")
 
+    public_url = get_public_url()
+
     call = client.calls.create(
         to=to_number,
         from_=settings.TWILIO_PHONE_NUMBER,
-        url=f"{settings.APP_URL}/api/twilio/outbound-connect",
-        status_callback=f"{settings.APP_URL}/api/twilio/status",
+        url=f"{public_url}/api/twilio/outbound-connect",
+        status_callback=f"{public_url}/api/twilio/status",
         status_callback_event=["initiated", "ringing", "answered", "completed"],
     )
 

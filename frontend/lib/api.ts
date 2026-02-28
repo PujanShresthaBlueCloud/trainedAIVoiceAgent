@@ -82,4 +82,16 @@ export const api = {
   },
   deleteKBFile: (kbId: string, fileId: string) =>
     request<any>(`/api/knowledge-bases/${kbId}/files/${fileId}`, { method: "DELETE" }),
+
+  // Phone Numbers
+  listPhoneNumbers: () => request<any[]>("/api/phone-numbers"),
+  syncPhoneNumbers: () =>
+    request<any>("/api/phone-numbers/sync", { method: "POST" }),
+  updatePhoneNumber: (id: string, data: any) =>
+    request<any>(`/api/phone-numbers/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  configurePhoneNumber: (id: string) =>
+    request<any>(`/api/phone-numbers/${id}/configure`, { method: "POST" }),
+
+  // Diagnostics
+  getDiagnostics: () => request<any>("/api/diagnostics"),
 };
