@@ -21,7 +21,7 @@ class FunctionCreate(BaseModel):
     speak_during_execution: Optional[str] = None
     speak_on_failure: Optional[str] = None
     query_params: Optional[dict] = None
-    payload_mode: Optional[str] = "args_only"
+    payload_mode: Optional[str] = None
     store_variables: Optional[dict] = None
 
 
@@ -41,6 +41,18 @@ class FunctionUpdate(BaseModel):
     query_params: Optional[dict] = None
     payload_mode: Optional[str] = None
     store_variables: Optional[dict] = None
+
+
+# Base columns from the CREATE TABLE statement (always exist)
+_BASE_COLUMNS = {
+    "id", "name", "description", "parameters", "webhook_url", "method",
+    "headers", "is_active", "created_at", "updated_at",
+}
+
+
+def _strip_to_base_columns(data: dict) -> dict:
+    """Keep only columns guaranteed to exist in the DB."""
+    return {k: v for k, v in data.items() if k in _BASE_COLUMNS}
 
 
 @router.get("")
@@ -63,7 +75,14 @@ async def get_function(function_id: str):
 async def create_function(func: FunctionCreate):
     db = get_supabase()
     data = func.model_dump(exclude_none=True)
-    result = db.table("custom_functions").insert(data).execute()
+    try:
+        result = db.table("custom_functions").insert(data).execute()
+    except Exception as e:
+        if "PGRST204" in str(e):
+            data = _strip_to_base_columns(data)
+            result = db.table("custom_functions").insert(data).execute()
+        else:
+            raise
     return result.data[0]
 
 
@@ -74,7 +93,15 @@ async def update_function(function_id: str, func: FunctionUpdate):
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
     data["updated_at"] = "now()"
-    result = db.table("custom_functions").update(data).eq("id", function_id).execute()
+    try:
+        result = db.table("custom_functions").update(data).eq("id", function_id).execute()
+    except Exception as e:
+        if "PGRST204" in str(e):
+            data = _strip_to_base_columns(data)
+            data["updated_at"] = "now()"
+            result = db.table("custom_functions").update(data).eq("id", function_id).execute()
+        else:
+            raise
     if not result.data:
         raise HTTPException(status_code=404, detail="Function not found")
     return result.data[0]
