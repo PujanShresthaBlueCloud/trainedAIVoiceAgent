@@ -1,6 +1,7 @@
 """Base VoiceSession — STT -> LLM -> TTS pipeline."""
 import asyncio
 import logging
+import re
 import time
 from typing import Callable, Awaitable
 from app.database import get_supabase
@@ -11,6 +12,14 @@ from app.voice.tools import get_tools_for_agent, get_custom_function_metadata, B
 from app.voice.functions import execute_tool
 
 logger = logging.getLogger(__name__)
+
+_SENTENCE_END = re.compile(r'(?<=[.!?:])(?:\s|$)')
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split text on sentence boundaries, keeping partial trailing text."""
+    parts = _SENTENCE_END.split(text)
+    return [p for p in parts if p.strip()]
 
 
 class VoiceSession:
@@ -162,6 +171,11 @@ class VoiceSession:
         if recent_transcript:
             call_context["recent_transcript"] = recent_transcript
 
+        # Queue for streaming sentence chunks to TTS
+        tts_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        tts_task = asyncio.create_task(self._tts_consumer(tts_queue))
+        sentence_buffer = ""
+
         try:
             async for chunk in stream_llm_response(
                 self.messages,
@@ -173,10 +187,23 @@ class VoiceSession:
 
                 if chunk["type"] == "text_delta":
                     full_response += chunk["content"]
+                    sentence_buffer += chunk["content"]
                     if self.send_message:
                         await self.send_message({"type": "transcript", "role": "assistant", "content": chunk["content"], "is_final": False})
 
+                    # Flush completed sentences to TTS immediately
+                    sentences = _split_sentences(sentence_buffer)
+                    if len(sentences) > 1:
+                        for s in sentences[:-1]:
+                            await tts_queue.put(s)
+                        sentence_buffer = sentences[-1]
+
                 elif chunk["type"] == "tool_call":
+                    # Flush any buffered text before tool call
+                    if sentence_buffer.strip():
+                        await tts_queue.put(sentence_buffer)
+                        sentence_buffer = ""
+
                     tool_name = chunk["name"]
 
                     # Speak filler text while custom function executes
@@ -200,9 +227,11 @@ class VoiceSession:
 
                     # Speak failure message if webhook failed
                     if result.get("error") and result.get("_speak_on_failure"):
-                        await self._speak(result["_speak_on_failure"])
+                        await tts_queue.put(result["_speak_on_failure"])
 
                     if result.get("action") == "end_call":
+                        await tts_queue.put(None)
+                        await tts_task
                         await self.end(reason=result.get("reason", "agent_ended"))
                         return
                     self.messages.append({"role": "assistant", "content": f"[Called {tool_name}]"})
@@ -211,7 +240,17 @@ class VoiceSession:
             logger.error(f"LLM streaming error: {e}", exc_info=True)
             if self.send_message:
                 await self.send_message({"type": "error", "message": f"LLM error: {e}"})
+            await tts_queue.put(None)
+            await tts_task
             return
+
+        # Flush remaining buffered text
+        if sentence_buffer.strip() and not self._interrupt_tts:
+            await tts_queue.put(sentence_buffer)
+
+        # Signal TTS consumer to finish
+        await tts_queue.put(None)
+        await tts_task
 
         logger.info(f"LLM response: '{full_response[:100]}...' ({len(full_response)} chars)")
 
@@ -225,7 +264,16 @@ class VoiceSession:
                     logger.error(f"Failed to save transcript: {e}")
             if self.send_message:
                 await self.send_message({"type": "transcript", "role": "assistant", "content": full_response, "is_final": True})
-            await self._speak(full_response)
+
+    async def _tts_consumer(self, queue: asyncio.Queue):
+        """Consume sentence chunks from the queue and speak them sequentially."""
+        while True:
+            text = await queue.get()
+            if text is None:
+                break
+            if self._interrupt_tts:
+                break
+            await self._speak(text)
 
     async def _speak(self, text: str):
         if not self.send_audio:

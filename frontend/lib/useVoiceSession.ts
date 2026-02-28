@@ -265,7 +265,7 @@ export function useVoiceSession(agentId?: string) {
           console.log("[VoiceSession] Audio capture at", nativeSR, "Hz, downsampling to 16000 Hz");
 
           const source = audioCtx.createMediaStreamSource(stream);
-          const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+          const processor = audioCtx.createScriptProcessor(2048, 1, 1);
           processorRef.current = processor;
 
           processor.onaudioprocess = (e) => {

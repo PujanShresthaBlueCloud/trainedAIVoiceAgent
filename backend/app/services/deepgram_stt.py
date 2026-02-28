@@ -30,7 +30,7 @@ class DeepgramSTT:
         params = (
             f"?language={self.language}&sample_rate={self.sample_rate}"
             f"&encoding={self.encoding}&channels=1&model=nova-2"
-            f"&punctuate=true&interim_results=true&endpointing=300&vad_events=true"
+            f"&punctuate=true&interim_results=true&endpointing=200&vad_events=true&smart_format=true"
         )
         headers = {"Authorization": f"Token {settings.DEEPGRAM_API_KEY}"}
         try:

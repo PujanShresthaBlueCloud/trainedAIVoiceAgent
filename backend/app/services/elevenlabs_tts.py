@@ -13,7 +13,7 @@ ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1"
 async def synthesize_speech(
     text: str,
     voice_id: str | None = None,
-    model_id: str = "eleven_multilingual_v2",
+    model_id: str = "eleven_flash_v2_5",
     output_format: str = "pcm_16000",
 ) -> AsyncGenerator[bytes, None]:
     """Try ElevenLabs → OpenAI → gTTS (free) fallback chain."""
@@ -54,11 +54,11 @@ async def synthesize_speech(
 async def _elevenlabs_tts(
     text: str,
     voice_id: str | None = None,
-    model_id: str = "eleven_multilingual_v2",
+    model_id: str = "eleven_flash_v2_5",
     output_format: str = "pcm_16000",
 ) -> AsyncGenerator[bytes, None]:
     voice = voice_id or settings.ELEVENLABS_VOICE_ID
-    url = f"{ELEVENLABS_API_URL}/text-to-speech/{voice}/stream?output_format={output_format}"
+    url = f"{ELEVENLABS_API_URL}/text-to-speech/{voice}/stream?output_format={output_format}&optimize_streaming_latency=4"
 
     headers = {"xi-api-key": settings.ELEVENLABS_API_KEY, "Content-Type": "application/json"}
     payload = {
@@ -75,7 +75,7 @@ async def _elevenlabs_tts(
                 body = await resp.aread()
                 logger.error(f"ElevenLabs TTS error {resp.status_code}: {body}")
                 return
-            async for chunk in resp.aiter_bytes(chunk_size=4096):
+            async for chunk in resp.aiter_bytes(chunk_size=2048):
                 if chunk:
                     yield chunk
 
