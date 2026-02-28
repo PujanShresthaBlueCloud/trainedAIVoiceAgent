@@ -128,4 +128,9 @@ CREATE TABLE IF NOT EXISTS knowledge_base_files (
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS knowledge_base_id UUID REFERENCES knowledge_bases(id);
 
 CREATE INDEX IF NOT EXISTS idx_kb_files_kb_id ON knowledge_base_files(knowledge_base_id);
+
+-- New custom function columns for query params, payload mode, and store variables
+ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS query_params JSONB;
+ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS payload_mode TEXT DEFAULT 'args_only';
+ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS store_variables JSONB;
 """

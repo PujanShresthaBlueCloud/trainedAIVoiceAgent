@@ -64,6 +64,9 @@ export interface CustomFunction {
   response_mapping: Record<string, string> | null;
   speak_during_execution: string | null;
   speak_on_failure: string | null;
+  query_params: Record<string, string> | null;
+  payload_mode: string;
+  store_variables: Record<string, string> | null;
   created_at: string;
   updated_at: string;
 }

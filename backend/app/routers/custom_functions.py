@@ -20,6 +20,9 @@ class FunctionCreate(BaseModel):
     response_mapping: Optional[dict] = None
     speak_during_execution: Optional[str] = None
     speak_on_failure: Optional[str] = None
+    query_params: Optional[dict] = None
+    payload_mode: Optional[str] = "args_only"
+    store_variables: Optional[dict] = None
 
 
 class FunctionUpdate(BaseModel):
@@ -35,6 +38,9 @@ class FunctionUpdate(BaseModel):
     response_mapping: Optional[dict] = None
     speak_during_execution: Optional[str] = None
     speak_on_failure: Optional[str] = None
+    query_params: Optional[dict] = None
+    payload_mode: Optional[str] = None
+    store_variables: Optional[dict] = None
 
 
 @router.get("")

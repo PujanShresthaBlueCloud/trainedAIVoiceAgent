@@ -45,9 +45,9 @@ async def synthesize_speech(
         except Exception as e:
             logger.warning(f"OpenAI TTS failed: {e}, trying gTTS fallback")
 
-    # Final fallback: gTTS (free, no API key needed)
-    logger.info("Using gTTS (free) fallback")
-    async for chunk in _gtts_tts(text):
+    # Final fallback: Edge TTS (free, no API key, streaming, good quality)
+    logger.info("Using Edge TTS (free) fallback")
+    async for chunk in _edge_tts(text):
         yield chunk
 
 
@@ -119,6 +119,43 @@ async def _openai_tts(text: str) -> AsyncGenerator[bytes, None]:
                 pcm_out = _resample_pcm16(bytes(buffer), 24000, 16000)
                 if pcm_out:
                     yield pcm_out
+
+
+async def _edge_tts(text: str, voice: str = "en-US-JennyNeural") -> AsyncGenerator[bytes, None]:
+    """Free Microsoft Edge TTS — streams MP3, converts to PCM16 16kHz in chunks."""
+    try:
+        import edge_tts
+    except ImportError:
+        logger.error("edge-tts not installed. Run: pip install edge-tts")
+        # Fall back to gTTS
+        async for chunk in _gtts_tts(text):
+            yield chunk
+        return
+
+    logger.info(f"Edge TTS request: voice={voice}, text_len={len(text)}")
+
+    communicate = edge_tts.Communicate(text, voice)
+    mp3_buffer = bytearray()
+
+    async for msg in communicate.stream():
+        if msg["type"] == "audio":
+            mp3_buffer.extend(msg["data"])
+            # Convert in chunks once we have enough MP3 data (~8KB)
+            if len(mp3_buffer) >= 8192:
+                pcm_data = await _mp3_to_pcm16(bytes(mp3_buffer))
+                mp3_buffer.clear()
+                if pcm_data:
+                    for i in range(0, len(pcm_data), 2048):
+                        yield pcm_data[i:i + 2048]
+
+    # Flush remaining MP3 data
+    if mp3_buffer:
+        pcm_data = await _mp3_to_pcm16(bytes(mp3_buffer))
+        if pcm_data:
+            for i in range(0, len(pcm_data), 2048):
+                yield pcm_data[i:i + 2048]
+
+    logger.info("Edge TTS complete")
 
 
 async def _gtts_tts(text: str) -> AsyncGenerator[bytes, None]:

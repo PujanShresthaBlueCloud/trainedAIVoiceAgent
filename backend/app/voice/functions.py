@@ -81,11 +81,29 @@ async def _call_webhook(func: dict, args: dict, call_context: dict | None = None
     retries = func.get("retry_count", 0)
     response_mapping = func.get("response_mapping")
     speak_on_failure = func.get("speak_on_failure")
+    query_params = func.get("query_params") or {}
+    payload_mode = func.get("payload_mode", "args_only")
+    store_variables = func.get("store_variables")
 
-    # Inject call context into request body
-    body = {**args}
-    if call_context:
-        body["_call_context"] = call_context
+    # Build request body based on payload_mode
+    if payload_mode == "full_context":
+        body = {**args}
+        if call_context:
+            body["_call_context"] = call_context
+    else:
+        # args_only (default)
+        body = {**args}
+
+    # Append query_params to URL for all HTTP methods
+    if query_params:
+        from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
+        parsed = urlparse(url)
+        existing_params = parse_qs(parsed.query)
+        # Merge: query_params override existing
+        for k, v in query_params.items():
+            existing_params[k] = [v]
+        new_query = urlencode({k: v[0] for k, v in existing_params.items()})
+        url = urlunparse(parsed._replace(query=new_query))
 
     last_error = None
     for attempt in range(retries + 1):
@@ -107,7 +125,14 @@ async def _call_webhook(func: dict, args: dict, call_context: dict | None = None
                         mapped = _apply_response_mapping(data, response_mapping)
                         data = {"_raw": data, **mapped}
 
-                    return data if isinstance(data, dict) else {"response": data}
+                    result = data if isinstance(data, dict) else {"response": data}
+
+                    # Extract and store variables from response
+                    if store_variables and isinstance(data, dict):
+                        stored = _apply_response_mapping(data if "_raw" not in data else data["_raw"], store_variables)
+                        result["_stored_variables"] = stored
+
+                    return result
 
                 last_error = f"Webhook returned {resp.status_code}: {resp.text[:200]}"
         except httpx.TimeoutException:
