@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     LIVEKIT_URL: str = "ws://localhost:7880"
     LIVEKIT_API_KEY: str = ""
     LIVEKIT_API_SECRET: str = ""
+    LIVEKIT_TRUNK_ID: str = ""
+    CARTESIA_API_KEY: str = ""
 
     # Knowledge Base / RAG
     PINECONE_API_KEY: str = ""

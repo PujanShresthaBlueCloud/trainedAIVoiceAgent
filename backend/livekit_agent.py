@@ -11,7 +11,7 @@ load_dotenv()
 from livekit import agents, rtc
 from livekit.agents import AgentSession, Agent, RoomInputOptions
 from livekit.agents.llm import function_tool
-from livekit.plugins import deepgram, openai, elevenlabs, silero, anthropic
+from livekit.plugins import deepgram, openai, cartesia, silero, anthropic
 
 from app.database import get_supabase
 from app.config import settings
@@ -60,12 +60,13 @@ def _build_llm(agent_config: dict):
         )
 
 
-def _build_tts(agent_config: dict) -> elevenlabs.TTS:
-    """Build ElevenLabs TTS plugin from agent config."""
-    voice_id = agent_config.get("voice_id", settings.ELEVENLABS_VOICE_ID)
-    return elevenlabs.TTS(
-        voice_id=voice_id,
-        api_key=settings.ELEVENLABS_API_KEY,
+def _build_tts(agent_config: dict) -> cartesia.TTS:
+    """Build Cartesia TTS plugin from agent config."""
+    language = agent_config.get("language", "en-US")
+    return cartesia.TTS(
+        model="sonic-3",
+        language=language[:2] if language else "en",
+        api_key=settings.CARTESIA_API_KEY,
     )
 
 

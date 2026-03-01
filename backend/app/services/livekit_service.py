@@ -9,6 +9,16 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _api_url() -> str:
+    """Convert ws(s):// URL to http(s):// for API calls."""
+    url = settings.LIVEKIT_URL
+    if url.startswith("wss://"):
+        return url.replace("wss://", "https://")
+    if url.startswith("ws://"):
+        return url.replace("ws://", "http://")
+    return url
+
+
 def generate_token(agent_id: str, participant_name: str = "user") -> tuple[str, str]:
     """Generate a LiveKit JWT token for a participant joining an agent room.
 
@@ -32,7 +42,7 @@ async def create_room(agent_id: str, call_id: str) -> str:
     metadata = json.dumps({"agent_id": agent_id, "call_id": call_id})
 
     async with LiveKitAPI(
-        url=settings.LIVEKIT_URL,
+        url=_api_url(),
         api_key=settings.LIVEKIT_API_KEY,
         api_secret=settings.LIVEKIT_API_SECRET,
     ) as api:
@@ -47,7 +57,7 @@ async def create_room(agent_id: str, call_id: str) -> str:
 async def create_sip_participant(room_name: str, phone_number: str, agent_id: str):
     """Dial out to a phone number via LiveKit SIP and add them to the room."""
     async with LiveKitAPI(
-        url=settings.LIVEKIT_URL,
+        url=_api_url(),
         api_key=settings.LIVEKIT_API_KEY,
         api_secret=settings.LIVEKIT_API_SECRET,
     ) as api:
@@ -55,7 +65,7 @@ async def create_sip_participant(room_name: str, phone_number: str, agent_id: st
 
         await api.sip.create_sip_participant(
             CreateSIPParticipantRequest(
-                sip_trunk_id="",  # configure via LiveKit SIP trunk settings
+                sip_trunk_id=settings.LIVEKIT_TRUNK_ID,
                 sip_call_to=phone_number,
                 room_name=room_name,
                 participant_identity=f"phone-{phone_number}",
@@ -69,7 +79,7 @@ async def create_sip_participant(room_name: str, phone_number: str, agent_id: st
 async def list_rooms() -> list[dict]:
     """List active LiveKit rooms."""
     async with LiveKitAPI(
-        url=settings.LIVEKIT_URL,
+        url=_api_url(),
         api_key=settings.LIVEKIT_API_KEY,
         api_secret=settings.LIVEKIT_API_SECRET,
     ) as api:

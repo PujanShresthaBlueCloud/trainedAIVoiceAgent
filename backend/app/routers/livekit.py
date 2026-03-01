@@ -61,7 +61,7 @@ async def get_livekit_token(req: TokenRequest):
     return {
         "token": token,
         "room_name": room_name,
-        "livekit_url": settings.LIVEKIT_URL.replace("ws://", "wss://").replace("wss://localhost", "ws://localhost"),
+        "livekit_url": settings.LIVEKIT_URL,
         "call_id": call_id,
     }
 
