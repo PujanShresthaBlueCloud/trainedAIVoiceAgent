@@ -92,6 +92,17 @@ export const api = {
   configurePhoneNumber: (id: string) =>
     request<any>(`/api/phone-numbers/${id}/configure`, { method: "POST" }),
 
+  // LiveKit
+  getLivekitToken: (agentId: string, participantName: string = "user") =>
+    request<{ token: string; room_name: string; livekit_url: string; call_id: string }>(
+      "/api/livekit/token",
+      {
+        method: "POST",
+        body: JSON.stringify({ agent_id: agentId, participant_name: participantName }),
+      }
+    ),
+  getLivekitRooms: () => request<any>("/api/livekit/rooms"),
+
   // Diagnostics
   getDiagnostics: () => request<any>("/api/diagnostics"),
 };

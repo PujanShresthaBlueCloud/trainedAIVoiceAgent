@@ -21,7 +21,11 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""
     APP_URL: str = "http://localhost:8000"
-    NGROK_AUTHTOKEN: str = ""
+
+    # LiveKit
+    LIVEKIT_URL: str = "ws://localhost:7880"
+    LIVEKIT_API_KEY: str = ""
+    LIVEKIT_API_SECRET: str = ""
 
     # Knowledge Base / RAG
     PINECONE_API_KEY: str = ""

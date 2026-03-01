@@ -1,16 +1,10 @@
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp, Scope, Receive, Send
 import logging
 import traceback
 
-from contextlib import asynccontextmanager
-
-from app.routers import agents, calls, system_prompts, custom_functions, twilio_webhooks, knowledge_bases, phone_numbers
-from app.voice.session_browser import BrowserVoiceSession
-from app.ws.twilio import router as twilio_ws_router
-from app.services.ngrok_service import start_tunnel, stop_tunnel, get_public_url
+from app.routers import agents, calls, system_prompts, custom_functions, knowledge_bases, phone_numbers, livekit
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,15 +13,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-@asynccontextmanager
-async def lifespan(app):
-    start_tunnel()
-    logger.info(f"Public URL: {get_public_url()}")
-    yield
-    stop_tunnel()
 
-
-app = FastAPI(title="Voice AI Platform", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Voice AI Platform", version="1.0.0")
 
 
 # Manual CORS that does NOT touch WebSocket connections
@@ -36,12 +23,7 @@ class CORSMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if scope["type"] == "websocket":
-            await self.app(scope, receive, send)
-            return
-
         if scope["type"] == "http":
-            headers_list = scope.get("headers", [])
             method = scope.get("method", "GET")
 
             # Handle preflight
@@ -83,29 +65,9 @@ app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(calls.router, prefix="/api/calls", tags=["calls"])
 app.include_router(system_prompts.router, prefix="/api/system-prompts", tags=["system-prompts"])
 app.include_router(custom_functions.router, prefix="/api/custom-functions", tags=["custom-functions"])
-app.include_router(twilio_webhooks.router, prefix="/api/twilio", tags=["twilio"])
 app.include_router(knowledge_bases.router, prefix="/api/knowledge-bases", tags=["knowledge-bases"])
 app.include_router(phone_numbers.router, prefix="/api/phone-numbers", tags=["phone-numbers"])
-app.include_router(twilio_ws_router)
-
-
-# WebSocket endpoint directly on app — no router indirection
-@app.websocket("/ws/voice-browser")
-async def voice_browser_ws(websocket: WebSocket, agent_id: str = Query(default=None)):
-    await websocket.accept()
-    logger.info(f"Browser WS connected: agent_id={agent_id}")
-    session = BrowserVoiceSession(websocket, agent_id=agent_id)
-    try:
-        await session.run()
-    except WebSocketDisconnect:
-        logger.info("Browser WS disconnected")
-    except Exception as e:
-        logger.error(f"Browser WS error: {e}", exc_info=True)
-    finally:
-        try:
-            await websocket.close()
-        except Exception:
-            pass
+app.include_router(livekit.router, prefix="/api/livekit", tags=["livekit"])
 
 
 @app.exception_handler(Exception)
@@ -146,8 +108,7 @@ async def diagnostics():
         "google": bool(settings.GOOGLE_API_KEY),
         "groq": bool(settings.GROQ_API_KEY),
         "twilio": bool(settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN),
-        "ngrok": bool(settings.NGROK_AUTHTOKEN),
-        "public_url": get_public_url(),
+        "livekit": bool(settings.LIVEKIT_API_KEY and settings.LIVEKIT_API_SECRET),
     }
 
 

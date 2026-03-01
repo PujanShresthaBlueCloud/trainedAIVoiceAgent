@@ -404,3 +404,216 @@ INFO:     Waiting for application startup.
 23:49:56 INFO [app.services.ngrok_service] NGROK_AUTHTOKEN not set — skipping ngrok tunnel
 23:49:56 INFO [app.main] Public URL: http://localhost:8000
 INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app/config.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9695]
+INFO:     Started server process [14799]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/starlette/routing.py", line 734, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/main.py", line 24, in lifespan
+    start_tunnel()
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/services/ngrok_service.py", line 13, in start_tunnel
+    if not settings.NGROK_AUTHTOKEN:
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/pydantic/main.py", line 1026, in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+AttributeError: 'Settings' object has no attribute 'NGROK_AUTHTOKEN'
+
+ERROR:    Application startup failed. Exiting.
+WARNING:  WatchFiles detected changes in 'app/services/livekit_service.py'. Reloading...
+INFO:     Started server process [14820]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/starlette/routing.py", line 734, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/main.py", line 24, in lifespan
+    start_tunnel()
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/services/ngrok_service.py", line 13, in start_tunnel
+    if not settings.NGROK_AUTHTOKEN:
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/pydantic/main.py", line 1026, in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+AttributeError: 'Settings' object has no attribute 'NGROK_AUTHTOKEN'
+
+ERROR:    Application startup failed. Exiting.
+WARNING:  WatchFiles detected changes in 'app/routers/livekit.py'. Reloading...
+INFO:     Started server process [14833]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/starlette/routing.py", line 734, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/main.py", line 24, in lifespan
+    start_tunnel()
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/services/ngrok_service.py", line 13, in start_tunnel
+    if not settings.NGROK_AUTHTOKEN:
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/pydantic/main.py", line 1026, in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+AttributeError: 'Settings' object has no attribute 'NGROK_AUTHTOKEN'
+
+ERROR:    Application startup failed. Exiting.
+WARNING:  WatchFiles detected changes in 'livekit_agent.py'. Reloading...
+INFO:     Started server process [14843]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/starlette/routing.py", line 734, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/main.py", line 24, in lifespan
+    start_tunnel()
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/services/ngrok_service.py", line 13, in start_tunnel
+    if not settings.NGROK_AUTHTOKEN:
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/pydantic/main.py", line 1026, in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+AttributeError: 'Settings' object has no attribute 'NGROK_AUTHTOKEN'
+
+ERROR:    Application startup failed. Exiting.
+WARNING:  WatchFiles detected changes in 'app/main.py'. Reloading...
+Process SpawnProcess-24:
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/_subprocess.py", line 78, in subprocess_started
+    target(sockets=sockets)
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/server.py", line 62, in run
+    return asyncio.run(self.serve(sockets=sockets))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/server.py", line 69, in serve
+    config.load()
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/config.py", line 458, in load
+    self.loaded_app = import_from_string(self.app)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/importer.py", line 24, in import_from_string
+    raise exc from None
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/importer.py", line 21, in import_from_string
+    module = importlib.import_module(module_str)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/main.py", line 7, in <module>
+    from app.routers import agents, calls, system_prompts, custom_functions, knowledge_bases, phone_numbers, livekit
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/routers/livekit.py", line 7, in <module>
+    from app.services.livekit_service import generate_token, create_room, list_rooms
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/services/livekit_service.py", line 5, in <module>
+    from livekit.api import AccessToken, VideoGrants, LiveKitAPI, CreateRoomRequest, SIPParticipantInfo
+ModuleNotFoundError: No module named 'livekit'
+WARNING:  WatchFiles detected changes in 'app/routers/calls.py'. Reloading...
+Process SpawnProcess-25:
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/_subprocess.py", line 78, in subprocess_started
+    target(sockets=sockets)
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/server.py", line 62, in run
+    return asyncio.run(self.serve(sockets=sockets))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/server.py", line 69, in serve
+    config.load()
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/config.py", line 458, in load
+    self.loaded_app = import_from_string(self.app)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/importer.py", line 24, in import_from_string
+    raise exc from None
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/importer.py", line 21, in import_from_string
+    module = importlib.import_module(module_str)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/main.py", line 7, in <module>
+    from app.routers import agents, calls, system_prompts, custom_functions, knowledge_bases, phone_numbers, livekit
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/routers/livekit.py", line 7, in <module>
+    from app.services.livekit_service import generate_token, create_room, list_rooms
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/services/livekit_service.py", line 5, in <module>
+    from livekit.api import AccessToken, VideoGrants, LiveKitAPI, CreateRoomRequest, SIPParticipantInfo
+ModuleNotFoundError: No module named 'livekit'
+WARNING:  WatchFiles detected changes in 'app/ws/twilio.py', 'app/services/ngrok_service.py', 'app/routers/twilio_webhooks.py', 'app/voice/session_browser.py', 'app/services/deepgram_stt.py', 'app/voice/session_twilio.py', 'app/ws/browser.py', 'app/services/elevenlabs_tts.py', 'app/voice/audio_codec.py', 'app/voice/session.py', 'app/services/twilio_service.py', 'app/services/llm.py'. Reloading...
+Process SpawnProcess-26:
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/_subprocess.py", line 78, in subprocess_started
+    target(sockets=sockets)
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/server.py", line 62, in run
+    return asyncio.run(self.serve(sockets=sockets))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/server.py", line 69, in serve
+    config.load()
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/config.py", line 458, in load
+    self.loaded_app = import_from_string(self.app)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/importer.py", line 24, in import_from_string
+    raise exc from None
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/venv/lib/python3.12/site-packages/uvicorn/importer.py", line 21, in import_from_string
+    module = importlib.import_module(module_str)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/main.py", line 7, in <module>
+    from app.routers import agents, calls, system_prompts, custom_functions, knowledge_bases, phone_numbers, livekit
+  File "/Users/pujan/Desktop/pujan/Projects/trainedlogicaivoice/backend/app/routers/phone_numbers.py", line 5, in <module>
+    from app.services.ngrok_service import get_public_url
+ModuleNotFoundError: No module named 'app.services.ngrok_service'

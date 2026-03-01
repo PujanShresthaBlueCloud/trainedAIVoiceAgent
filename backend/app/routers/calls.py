@@ -47,9 +47,28 @@ async def get_transcript(call_id: str):
 
 @router.post("/outbound")
 async def make_outbound_call(req: OutboundCallRequest):
-    from app.services.twilio_service import make_outbound_call as twilio_call
-    result = await twilio_call(req.agent_id, req.to_number)
-    return result
+    from app.services.livekit_service import create_room, create_sip_participant
+
+    # Create call record
+    call_result = db.table("calls").insert({
+        "agent_id": req.agent_id,
+        "direction": "outbound",
+        "caller_number": req.to_number,
+        "status": "queued",
+    }).execute()
+
+    if not call_result.data:
+        raise HTTPException(status_code=500, detail="Failed to create call record")
+
+    call_id = call_result.data[0]["id"]
+
+    # Create LiveKit room with agent metadata
+    room_name = await create_room(req.agent_id, call_id)
+
+    # Dial out via LiveKit SIP
+    await create_sip_participant(room_name, req.to_number, req.agent_id)
+
+    return {"call_id": call_id, "room_name": room_name, "status": "queued"}
 
 
 @router.delete("/{call_id}")
