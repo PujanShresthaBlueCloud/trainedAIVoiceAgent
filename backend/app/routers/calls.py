@@ -49,6 +49,8 @@ async def get_transcript(call_id: str):
 async def make_outbound_call(req: OutboundCallRequest):
     from app.services.livekit_service import create_room, create_sip_participant
 
+    db = get_supabase()
+
     # Create call record
     call_result = db.table("calls").insert({
         "agent_id": req.agent_id,

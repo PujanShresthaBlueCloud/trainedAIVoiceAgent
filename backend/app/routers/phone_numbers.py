@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.database import get_supabase
 from app.config import settings
-from app.services.ngrok_service import get_public_url
 import logging
 
 logger = logging.getLogger(__name__)
@@ -75,34 +74,21 @@ async def update_phone_number(phone_id: str, data: UpdatePhoneNumber):
 
 @router.post("/{phone_id}/configure")
 async def configure_phone_number(phone_id: str):
-    if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_AUTH_TOKEN:
-        raise HTTPException(status_code=400, detail="Twilio credentials not configured")
+    """Configure a phone number for inbound calls via LiveKit SIP.
 
+    Note: With LiveKit SIP, inbound call routing is configured via SIP trunk
+    settings in the LiveKit server, not via Twilio webhook URLs. This endpoint
+    now just returns the current phone number configuration status.
+    """
     db = get_supabase()
-    result = db.table("phone_numbers").select("phone_number").eq("id", phone_id).execute()
+    result = db.table("phone_numbers").select("*").eq("id", phone_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Phone number not found")
 
-    phone_number = result.data[0]["phone_number"]
-    public_url = get_public_url()
-
-    from twilio.rest import Client
-    client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-
-    numbers = client.incoming_phone_numbers.list(phone_number=phone_number)
-    if not numbers:
-        raise HTTPException(status_code=404, detail="Phone number not found in Twilio")
-
-    numbers[0].update(
-        voice_url=f"{public_url}/api/twilio/incoming",
-        voice_method="POST",
-        status_callback=f"{public_url}/api/twilio/status",
-        status_callback_method="POST",
-    )
-
+    phone = result.data[0]
     return {
         "configured": True,
-        "phone_number": phone_number,
-        "voice_url": f"{public_url}/api/twilio/incoming",
-        "status_callback": f"{public_url}/api/twilio/status",
+        "phone_number": phone["phone_number"],
+        "note": "Inbound routing is handled by LiveKit SIP trunk configuration. Assign an agent_id to this phone number to route calls.",
+        "agent_id": phone.get("agent_id"),
     }

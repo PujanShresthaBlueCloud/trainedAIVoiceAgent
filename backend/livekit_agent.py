@@ -1,4 +1,5 @@
 """LiveKit agent worker — voice pipeline (STT → LLM → TTS) with tool execution."""
+import asyncio
 import json
 import logging
 import time
@@ -63,7 +64,7 @@ def _build_tts(agent_config: dict) -> elevenlabs.TTS:
     """Build ElevenLabs TTS plugin from agent config."""
     voice_id = agent_config.get("voice_id", settings.ELEVENLABS_VOICE_ID)
     return elevenlabs.TTS(
-        voice=voice_id,
+        voice_id=voice_id,
         api_key=settings.ELEVENLABS_API_KEY,
     )
 
@@ -253,10 +254,10 @@ async def entrypoint(ctx: agents.JobContext):
             participants = ctx.room.remote_participants
             if len(participants) == 0:
                 # Give a grace period for reconnection
-                await agents.sleep(5)
+                await asyncio.sleep(5)
                 if len(ctx.room.remote_participants) == 0:
                     break
-            await agents.sleep(1)
+            await asyncio.sleep(1)
 
         # Session ended — update call record
         if call_id:
@@ -274,7 +275,7 @@ async def entrypoint(ctx: agents.JobContext):
         logger.info(f"Session ended: call={call_id}, duration={int(time.time() - started_at)}s")
 
     # Run disconnect monitor in background
-    ctx.create_task(_monitor_disconnect())
+    asyncio.create_task(_monitor_disconnect())
 
 
 if __name__ == "__main__":
