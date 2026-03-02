@@ -115,7 +115,7 @@ export default function CallsPage() {
     <div className="p-8">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Calls</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Call History</h1>
           <div className="flex items-center gap-3 mt-1">
             <p className="text-gray-500 dark:text-gray-400">Call history and outbound calls</p>
             {publicUrl && (

@@ -26,21 +26,23 @@ class CORSMiddleware:
         if scope["type"] == "http":
             method = scope.get("method", "GET")
 
-            # Handle preflight
+            # Handle preflight — respond directly without forwarding to the app
             if method == "OPTIONS":
-                async def send_preflight(message):
-                    if message["type"] == "http.response.start":
-                        message["headers"] = [
-                            (b"access-control-allow-origin", b"*"),
-                            (b"access-control-allow-methods", b"GET, POST, PUT, PATCH, DELETE, OPTIONS"),
-                            (b"access-control-allow-headers", b"*"),
-                            (b"access-control-max-age", b"86400"),
-                            (b"content-length", b"0"),
-                        ]
-                        message["status"] = 200
-                    await send(message)
-
-                await self.app(scope, receive, send_preflight)
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"access-control-allow-origin", b"*"),
+                        (b"access-control-allow-methods", b"GET, POST, PUT, PATCH, DELETE, OPTIONS"),
+                        (b"access-control-allow-headers", b"*"),
+                        (b"access-control-max-age", b"86400"),
+                        (b"content-length", b"0"),
+                    ],
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": b"",
+                })
                 return
 
             # Add CORS headers to normal responses

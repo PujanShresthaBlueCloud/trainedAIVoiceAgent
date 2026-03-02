@@ -11,8 +11,8 @@ const geistSans = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Voice AI Platform",
-  description: "Retell AI Clone — Voice AI Agent Platform",
+  title: "TrainedLogic AI Voice Platform",
+  description: "TrainedLogic AI Voice Agent Platform",
 };
 
 export default function RootLayout({

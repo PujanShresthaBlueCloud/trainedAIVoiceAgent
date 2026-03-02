@@ -2,28 +2,69 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
   Bot,
-  Phone,
-  PhoneCall,
-  MessageSquare,
-  Code2,
   Database,
+  PhoneCall,
+  PhoneOutgoing,
+  Phone,
+  MessageSquare,
+  BarChart3,
+  ShieldCheck,
+  Bell,
+  CreditCard,
   Settings,
   Zap,
   Sun,
   Moon,
+  HelpCircle,
+  Megaphone,
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/calls", label: "Calls", icon: Phone },
-  { href: "/phone-numbers", label: "Phone Numbers", icon: PhoneCall },
-  { href: "/system-prompts", label: "System Prompts", icon: MessageSquare },
-  { href: "/custom-functions", label: "Custom Functions", icon: Code2 },
-  { href: "/knowledge-base", label: "Knowledge Base", icon: Database },
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+}
+
+interface NavSection {
+  label: string;
+  items: NavItem[];
+}
+
+const sections: NavSection[] = [
+  {
+    label: "BUILD",
+    items: [
+      { href: "/agents", label: "Agents", icon: Bot },
+      { href: "/knowledge-base", label: "Knowledge Base", icon: Database },
+    ],
+  },
+  {
+    label: "DEPLOY",
+    items: [
+      { href: "/phone-numbers", label: "Phone Numbers", icon: PhoneCall },
+      { href: "/batch-call", label: "Batch Call", icon: PhoneOutgoing },
+    ],
+  },
+  {
+    label: "MONITOR",
+    items: [
+      { href: "/calls", label: "Call History", icon: Phone },
+      { href: "/chat-history", label: "Chat History", icon: MessageSquare },
+      { href: "/analytics", label: "Analytics", icon: BarChart3 },
+      { href: "/quality-assurance", label: "AI Quality Assurance", icon: ShieldCheck },
+      { href: "/alerting", label: "Alerting", icon: Bell, badge: "New" },
+    ],
+  },
+  {
+    label: "SYSTEM",
+    items: [
+      { href: "/settings", label: "Settings", icon: Settings },
+      { href: "/billing", label: "Pay As You Go", icon: CreditCard },
+    ],
+  },
 ];
 
 export default function Sidebar() {
@@ -32,55 +73,80 @@ export default function Sidebar() {
 
   return (
     <aside className="fixed left-0 top-0 h-full w-64 bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800 flex flex-col z-50">
-      {/* Logo */}
-      <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-800">
-        <Link href="/" className="flex items-center gap-2">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-800">
+        <Link href="/agents" className="flex items-center gap-2.5">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
             <Zap className="w-5 h-5 text-white" />
           </div>
-          <span className="text-lg font-semibold text-gray-900 dark:text-white">Voice AI</span>
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">TrainedLogic</span>
+            <span className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">Workspace</span>
+          </div>
         </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive =
-            pathname === item.href || pathname?.startsWith(item.href + "/");
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-indigo-50 dark:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400"
-                  : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
-              }`}
-            >
-              <Icon className="w-5 h-5" />
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+        {sections.map((section) => (
+          <div key={section.label}>
+            <p className="px-3 mb-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-500 font-medium">
+              {section.label}
+            </p>
+            <div className="space-y-0.5">
+              {section.items.map((item) => {
+                const isActive =
+                  pathname === item.href || pathname?.startsWith(item.href + "/");
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+                      isActive
+                        ? "bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white"
+                        : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 hover:text-gray-900 dark:hover:text-white"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                    {item.badge && (
+                      <span className="ml-auto text-[10px] font-semibold bg-indigo-600 text-white px-1.5 py-0.5 rounded">
+                        {item.badge}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-4 border-t border-gray-200 dark:border-gray-800 space-y-1">
+      <div className="px-3 py-3 border-t border-gray-200 dark:border-gray-800 space-y-0.5">
         <button
           onClick={toggleTheme}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
-          {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           {theme === "dark" ? "Light Mode" : "Dark Mode"}
         </button>
-        <Link
-          href="/settings"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors"
+        <button
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
-          <Settings className="w-5 h-5" />
-          Settings
-        </Link>
+          <HelpCircle className="w-4 h-4" />
+          Help
+        </button>
+        <button
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 hover:text-gray-900 dark:hover:text-white transition-colors"
+        >
+          <Megaphone className="w-4 h-4" />
+          Updates
+        </button>
+        <div className="px-3 pt-2">
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">user@trainedlogic.com</p>
+        </div>
       </div>
     </aside>
   );

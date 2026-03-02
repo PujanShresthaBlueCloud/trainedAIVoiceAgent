@@ -1,3 +1,22 @@
+export type AgentType = "Single Prompt" | "Multi Prompt";
+
+export interface AgentMetadata {
+  folder?: string;
+  agent_type?: string;
+  welcome_message?: string;
+  pause_before_speaking?: number;
+  ai_speaks_first?: boolean;
+  dynamic_message?: boolean;
+  speech_settings?: Record<string, any>;
+  transcription_settings?: Record<string, any>;
+  call_settings?: Record<string, any>;
+  post_call_extraction?: Record<string, any>;
+  security_settings?: Record<string, any>;
+  webhook_settings?: Record<string, any>;
+  mcps?: Record<string, any>;
+  [key: string]: any;
+}
+
 export interface Agent {
   id: string;
   name: string;

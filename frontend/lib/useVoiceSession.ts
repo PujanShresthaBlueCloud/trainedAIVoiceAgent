@@ -6,7 +6,6 @@ import {
   Track,
   RemoteTrackPublication,
   RemoteParticipant,
-  DataPacket_Kind,
 } from "livekit-client";
 import { api } from "./api";
 
@@ -56,7 +55,7 @@ export function useVoiceSession(agentId?: string) {
 
       // Get token from backend
       const tokenData = await api.getLivekitToken(agentId);
-      const { token, room_name, livekit_url } = tokenData;
+      const { token, livekit_url } = tokenData;
 
       const url = livekit_url || LIVEKIT_URL;
 
@@ -69,7 +68,7 @@ export function useVoiceSession(agentId?: string) {
         RoomEvent.TrackSubscribed,
         (
           track: any,
-          publication: RemoteTrackPublication,
+          _publication: RemoteTrackPublication,
           participant: RemoteParticipant
         ) => {
           if (track.kind === Track.Kind.Audio) {
@@ -84,7 +83,7 @@ export function useVoiceSession(agentId?: string) {
       // Clean up audio elements when tracks are unsubscribed
       room.on(
         RoomEvent.TrackUnsubscribed,
-        (track: any, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+        (track: any) => {
           track.detach().forEach((el: HTMLMediaElement) => el.remove());
         }
       );
@@ -92,7 +91,7 @@ export function useVoiceSession(agentId?: string) {
       // Handle transcript data from agent via data channel
       room.on(
         RoomEvent.DataReceived,
-        (data: Uint8Array, participant?: RemoteParticipant) => {
+        (data: Uint8Array) => {
           try {
             const msg = JSON.parse(new TextDecoder().decode(data));
             if (msg.type === "transcript") {

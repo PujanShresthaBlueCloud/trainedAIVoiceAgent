@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Settings, Key, Globe, Volume2, Brain, Phone, Save, Eye, EyeOff } from "lucide-react";
+import { Key, Globe, Volume2, Brain, Phone, Save, Eye, EyeOff } from "lucide-react";
 
 interface SettingsForm {
   // API Keys
