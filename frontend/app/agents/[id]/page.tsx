@@ -129,6 +129,110 @@ function getPlatformStyle(platform: string) {
   }
 }
 
+// --- Key-Value Pair Editor ---
+
+function KeyValueEditor({
+  label,
+  description,
+  pairs,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  pairs: { key: string; value: string }[];
+  onChange: (pairs: { key: string; value: string }[]) => void;
+}) {
+  const addPair = () => onChange([...pairs, { key: "", value: "" }]);
+  const removePair = (idx: number) => onChange(pairs.filter((_, i) => i !== idx));
+  const updatePair = (idx: number, field: "key" | "value", val: string) => {
+    const next = [...pairs];
+    next[idx] = { ...next[idx], [field]: val };
+    onChange(next);
+  };
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+        {label}
+      </label>
+      {description && (
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-2">{description}</p>
+      )}
+      <div className="space-y-2">
+        {pairs.map((pair, idx) => (
+          <div key={idx} className="flex items-center gap-2">
+            <input
+              type="text"
+              value={pair.key}
+              onChange={(e) => updatePair(idx, "key", e.target.value)}
+              placeholder="Key"
+              className="flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-900 dark:text-white font-mono focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+            />
+            <input
+              type="text"
+              value={pair.value}
+              onChange={(e) => updatePair(idx, "value", e.target.value)}
+              placeholder="Value"
+              className="flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-900 dark:text-white font-mono focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+            />
+            <button
+              onClick={() => removePair(idx)}
+              className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={addPair}
+        className="mt-2 flex items-center gap-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+      >
+        <Plus className="w-3 h-3" />
+        New key value pair
+      </button>
+    </div>
+  );
+}
+
+// --- Parameter Form Row ---
+
+interface ParamRow {
+  name: string;
+  description: string;
+  type: string;
+  required: boolean;
+}
+
+function schemaToRows(schema: any): ParamRow[] {
+  if (!schema || schema.type !== "object" || !schema.properties) return [];
+  const requiredSet = new Set<string>(schema.required || []);
+  return Object.entries(schema.properties).map(([name, prop]: [string, any]) => ({
+    name,
+    description: prop.description || "",
+    type: prop.type || "string",
+    required: requiredSet.has(name),
+  }));
+}
+
+function rowsToSchema(rows: ParamRow[]): any {
+  const properties: Record<string, any> = {};
+  const required: string[] = [];
+  for (const row of rows) {
+    if (!row.name.trim()) continue;
+    properties[row.name.trim()] = {
+      type: row.type,
+      ...(row.description ? { description: row.description } : {}),
+    };
+    if (row.required) required.push(row.name.trim());
+  }
+  return {
+    type: "object",
+    properties,
+    ...(required.length > 0 ? { required } : {}),
+  };
+}
+
 // --- Quick Create Modal ---
 
 interface QuickCreateModalProps {
@@ -153,74 +257,158 @@ function QuickCreateModal({
   testResult,
 }: QuickCreateModalProps) {
   const isEditing = !!editingFunction;
-  const tpl = template || INTEGRATION_TEMPLATES[3]; // fallback to custom
+  const tpl = template || INTEGRATION_TEMPLATES[3];
 
+  // Basic fields
   const [fnName, setFnName] = useState(
     editingFunction?.name || `${tpl.namePrefix}_${Date.now().toString(36).slice(-4)}`
   );
   const [fnDescription, setFnDescription] = useState(
     editingFunction?.description || tpl.defaultDescription
   );
-  const [webhookUrl, setWebhookUrl] = useState(
-    editingFunction?.webhook_url || ""
-  );
+  const [webhookUrl, setWebhookUrl] = useState(editingFunction?.webhook_url || "");
   const [method, setMethod] = useState(editingFunction?.method || "POST");
-  const [parameters, setParameters] = useState(
-    editingFunction
-      ? JSON.stringify(editingFunction.parameters, null, 2)
-      : JSON.stringify(
-          {
-            type: "object",
-            properties: {
-              message: { type: "string", description: "The message to send" },
-            },
-          },
-          null,
-          2
-        )
+
+  // Timeout in ms (stored as seconds in DB)
+  const [timeoutMs, setTimeoutMs] = useState(
+    editingFunction ? editingFunction.timeout_seconds * 1000 : 120000
   );
-  const [speakDuring, setSpeakDuring] = useState(
-    editingFunction?.speak_during_execution || ""
+
+  // Headers
+  const [headers, setHeaders] = useState<{ key: string; value: string }[]>(() => {
+    const h = editingFunction?.headers;
+    if (h && typeof h === "object") {
+      return Object.entries(h).map(([key, value]) => ({ key, value: String(value) }));
+    }
+    return [];
+  });
+
+  // Query params
+  const [queryParams, setQueryParams] = useState<{ key: string; value: string }[]>(() => {
+    const q = editingFunction?.query_params;
+    if (q && typeof q === "object") {
+      return Object.entries(q).map(([key, value]) => ({ key, value: String(value) }));
+    }
+    return [];
+  });
+
+  // Parameters — JSON vs Form view
+  const [paramView, setParamView] = useState<"json" | "form">("form");
+  const [paramJson, setParamJson] = useState(() => {
+    if (editingFunction) return JSON.stringify(editingFunction.parameters, null, 2);
+    return JSON.stringify({ type: "object", properties: {} }, null, 2);
+  });
+  const [paramRows, setParamRows] = useState<ParamRow[]>(() => {
+    if (editingFunction) return schemaToRows(editingFunction.parameters);
+    return [];
+  });
+  const [payloadMode, setPayloadMode] = useState(editingFunction?.payload_mode || "args_only");
+
+  // Store variables
+  const [storeVars, setStoreVars] = useState<{ key: string; value: string }[]>(() => {
+    const s = editingFunction?.store_variables;
+    if (s && typeof s === "object") {
+      return Object.entries(s).map(([key, value]) => ({ key, value: String(value) }));
+    }
+    return [];
+  });
+
+  // Speak during execution
+  const [speakDuring, setSpeakDuring] = useState(editingFunction?.speak_during_execution || "");
+
+  // Speak after execution (toggle)
+  const [speakAfter, setSpeakAfter] = useState(
+    editingFunction ? editingFunction.speak_on_failure !== "__silent__" : true
   );
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSave = async () => {
+  // Sync between JSON and Form views
+  const switchToForm = () => {
+    try {
+      const parsed = JSON.parse(paramJson);
+      setParamRows(schemaToRows(parsed));
+      setParamView("form");
+    } catch {
+      setError("Fix JSON errors before switching to Form view");
+    }
+  };
+  const switchToJson = () => {
+    const schema = rowsToSchema(paramRows);
+    setParamJson(JSON.stringify(schema, null, 2));
+    setParamView("json");
+  };
+
+  const addParamRow = () =>
+    setParamRows((prev) => [...prev, { name: "", description: "", type: "string", required: false }]);
+  const removeParamRow = (idx: number) => setParamRows((prev) => prev.filter((_, i) => i !== idx));
+  const updateParamRow = (idx: number, field: keyof ParamRow, val: any) => {
+    setParamRows((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: val };
+      return next;
+    });
+  };
+
+  // Build payload from all fields
+  const buildPayload = (): any | null => {
     setError("");
-    if (!fnName.trim()) {
-      setError("Function name is required");
-      return;
-    }
-    if (!webhookUrl.trim()) {
-      setError("Webhook URL is required");
-      return;
-    }
+    if (!fnName.trim()) { setError("Function name is required"); return null; }
+    if (!webhookUrl.trim()) { setError("Webhook URL is required"); return null; }
     if (!isEditing && existingNames.includes(fnName.trim())) {
       setError("A function with this name already exists");
-      return;
-    }
-    let parsedParams: any;
-    try {
-      parsedParams = JSON.parse(parameters);
-    } catch {
-      setError("Parameters must be valid JSON");
-      return;
+      return null;
     }
 
+    let parsedParams: any;
+    if (paramView === "json") {
+      try { parsedParams = JSON.parse(paramJson); } catch {
+        setError("Parameters must be valid JSON");
+        return null;
+      }
+    } else {
+      parsedParams = rowsToSchema(paramRows);
+    }
+
+    const headersObj: Record<string, string> = {};
+    for (const h of headers) {
+      if (h.key.trim()) headersObj[h.key.trim()] = h.value;
+    }
+
+    const queryObj: Record<string, string> = {};
+    for (const q of queryParams) {
+      if (q.key.trim()) queryObj[q.key.trim()] = q.value;
+    }
+
+    const storeObj: Record<string, string> = {};
+    for (const s of storeVars) {
+      if (s.key.trim()) storeObj[s.key.trim()] = s.value;
+    }
+
+    return {
+      name: fnName.trim(),
+      description: fnDescription.trim(),
+      webhook_url: webhookUrl.trim(),
+      method,
+      timeout_seconds: Math.round(timeoutMs / 1000),
+      headers: Object.keys(headersObj).length > 0 ? headersObj : null,
+      query_params: Object.keys(queryObj).length > 0 ? queryObj : null,
+      parameters: parsedParams,
+      payload_mode: payloadMode,
+      store_variables: Object.keys(storeObj).length > 0 ? storeObj : null,
+      speak_during_execution: speakDuring.trim() || null,
+      speak_on_failure: speakAfter ? null : "__silent__",
+      is_active: true,
+    };
+  };
+
+  const handleSave = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
     setSaving(true);
     try {
-      await onSave(
-        {
-          name: fnName.trim(),
-          description: fnDescription.trim(),
-          webhook_url: webhookUrl.trim(),
-          method,
-          parameters: parsedParams,
-          speak_during_execution: speakDuring.trim() || null,
-          is_active: true,
-        },
-        editingFunction?.id
-      );
+      await onSave(payload, editingFunction?.id);
     } catch (e: any) {
       setError(e.message || "Failed to save");
     } finally {
@@ -228,10 +416,15 @@ function QuickCreateModal({
     }
   };
 
+  const inputCls =
+    "w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none";
+  const labelCls = "block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1";
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-lg max-h-[90vh] overflow-y-auto mx-4">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-800">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-2xl max-h-[92vh] flex flex-col mx-4">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Zap className={`w-4 h-4 ${tpl.color}`} />
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
@@ -246,87 +439,273 @@ function QuickCreateModal({
           </button>
         </div>
 
-        <div className="px-5 py-4 space-y-4">
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* Name */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Function Name
-            </label>
+            <label className={labelCls}>Name</label>
             <input
               type="text"
               value={fnName}
               onChange={(e) => setFnName(e.target.value.replace(/\s+/g, "_").toLowerCase())}
-              className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white font-mono focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className={`${inputCls} font-mono`}
               placeholder="my_webhook_function"
             />
           </div>
 
+          {/* Description */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Description
-            </label>
+            <label className={labelCls}>Description</label>
             <input
               type="text"
               value={fnDescription}
               onChange={(e) => setFnDescription(e.target.value)}
-              className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className={inputCls}
+              placeholder="Enter the description of the custom function"
             />
           </div>
 
+          {/* API Endpoint: Method + URL */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Webhook URL
-            </label>
-            <input
-              type="url"
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white font-mono focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-              placeholder={tpl.placeholderUrl}
-            />
+            <label className={labelCls}>API Endpoint</label>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-1.5">
+              The API Endpoint is the address of the service you are connecting to
+            </p>
+            <div className="flex gap-2">
+              <select
+                value={method}
+                onChange={(e) => setMethod(e.target.value)}
+                className="w-24 flex-shrink-0 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
+              >
+                <option value="POST">POST</option>
+                <option value="GET">GET</option>
+                <option value="PUT">PUT</option>
+                <option value="PATCH">PATCH</option>
+                <option value="DELETE">DELETE</option>
+              </select>
+              <input
+                type="url"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                className={`${inputCls} font-mono text-xs`}
+                placeholder={tpl.placeholderUrl}
+              />
+            </div>
           </div>
 
+          {/* Timeout */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Method
-            </label>
-            <select
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-              className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-            >
-              <option value="POST">POST</option>
-              <option value="GET">GET</option>
-              <option value="PUT">PUT</option>
-              <option value="PATCH">PATCH</option>
-              <option value="DELETE">DELETE</option>
-            </select>
+            <label className={labelCls}>Timeout (ms)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={timeoutMs}
+                onChange={(e) => setTimeoutMs(Number(e.target.value) || 0)}
+                min={1000}
+                max={600000}
+                step={1000}
+                className={`${inputCls} w-40 font-mono`}
+              />
+              <span className="text-xs text-gray-400">milliseconds</span>
+            </div>
           </div>
 
+          {/* Headers */}
+          <KeyValueEditor
+            label="Headers"
+            description="Specify the HTTP headers required for your API request."
+            pairs={headers}
+            onChange={setHeaders}
+          />
+
+          {/* Query Parameters */}
+          <KeyValueEditor
+            label="Query Parameters"
+            description="Query string parameters to append to the URL."
+            pairs={queryParams}
+            onChange={setQueryParams}
+          />
+
+          {/* Parameters */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Parameters (JSON Schema)
-            </label>
-            <textarea
-              value={parameters}
-              onChange={(e) => setParameters(e.target.value)}
-              rows={6}
-              className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white font-mono focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-y"
-            />
+            <div className="flex items-center justify-between mb-1">
+              <label className={labelCls + " mb-0"}>Parameters (Optional)</label>
+              <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                <button
+                  onClick={paramView === "form" ? switchToJson : undefined}
+                  className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+                    paramView === "json"
+                      ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
+                  }`}
+                >
+                  JSON
+                </button>
+                <button
+                  onClick={paramView === "json" ? switchToForm : undefined}
+                  className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+                    paramView === "form"
+                      ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
+                  }`}
+                >
+                  Form
+                </button>
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-2">
+              JSON schema that defines the format in which the LLM will return. Please refer to the docs.
+            </p>
+
+            {/* Payload mode */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[11px] text-gray-500 dark:text-gray-400">Payload:</span>
+              <select
+                value={payloadMode}
+                onChange={(e) => setPayloadMode(e.target.value)}
+                className="bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1 text-[11px] text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                <option value="args_only">args only</option>
+                <option value="full">full</option>
+              </select>
+            </div>
+
+            {paramView === "json" ? (
+              <textarea
+                value={paramJson}
+                onChange={(e) => setParamJson(e.target.value)}
+                rows={8}
+                className={`${inputCls} font-mono text-xs resize-y`}
+              />
+            ) : (
+              <div className="space-y-2">
+                {paramRows.length > 0 && (
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <div className="grid grid-cols-[1fr_1.5fr_80px_50px_32px] gap-0 bg-gray-50 dark:bg-gray-800/50 px-3 py-1.5 text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      <span>Parameter Name</span>
+                      <span>Description</span>
+                      <span>Type</span>
+                      <span className="text-center">Req</span>
+                      <span />
+                    </div>
+                    {paramRows.map((row, idx) => (
+                      <div
+                        key={idx}
+                        className="grid grid-cols-[1fr_1.5fr_80px_50px_32px] gap-0 items-center px-3 py-1.5 border-t border-gray-100 dark:border-gray-800"
+                      >
+                        <input
+                          type="text"
+                          value={row.name}
+                          onChange={(e) =>
+                            updateParamRow(idx, "name", e.target.value.replace(/\s+/g, "_"))
+                          }
+                          placeholder="name"
+                          className="bg-transparent text-xs text-gray-900 dark:text-white font-mono outline-none mr-2"
+                        />
+                        <input
+                          type="text"
+                          value={row.description}
+                          onChange={(e) => updateParamRow(idx, "description", e.target.value)}
+                          placeholder="Description"
+                          className="bg-transparent text-xs text-gray-500 dark:text-gray-400 outline-none mr-2"
+                        />
+                        <select
+                          value={row.type}
+                          onChange={(e) => updateParamRow(idx, "type", e.target.value)}
+                          className="bg-transparent text-xs text-gray-700 dark:text-gray-300 outline-none"
+                        >
+                          <option value="string">string</option>
+                          <option value="number">number</option>
+                          <option value="boolean">boolean</option>
+                          <option value="integer">integer</option>
+                          <option value="array">array</option>
+                          <option value="object">object</option>
+                        </select>
+                        <div className="flex justify-center">
+                          <input
+                            type="checkbox"
+                            checked={row.required}
+                            onChange={(e) => updateParamRow(idx, "required", e.target.checked)}
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <button
+                          onClick={() => removeParamRow(idx)}
+                          className="p-0.5 text-gray-400 hover:text-red-500 transition-colors justify-self-center"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={addParamRow}
+                  className="flex items-center gap-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add
+                </button>
+              </div>
+            )}
           </div>
 
+          {/* Store Variables */}
+          <KeyValueEditor
+            label="Store Fields as Variables"
+            description="Extract values from tool response and store as dynamic variables."
+            pairs={storeVars}
+            onChange={setStoreVars}
+          />
+
+          {/* Speak During Execution */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Speak During Execution (optional)
-            </label>
+            <label className={labelCls}>Speak During Execution</label>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-1.5">
+              If the function takes over 2 seconds, the agent can say something like: &quot;Let me check that for you.&quot;
+            </p>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-medium">
+                Static Sentence
+              </span>
+            </div>
             <input
               type="text"
               value={speakDuring}
               onChange={(e) => setSpeakDuring(e.target.value)}
-              className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-              placeholder="Let me check that for you..."
+              className={inputCls}
+              placeholder="I am finalising your booking now, just a sec."
             />
           </div>
 
+          {/* Speak After Execution */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                Speak After Execution
+              </p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                Unselect if you want to run the function silently, such as uploading the call result to the server silently.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={speakAfter}
+              aria-label="Speak After Execution"
+              onClick={() => setSpeakAfter(!speakAfter)}
+              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${
+                speakAfter ? "bg-indigo-600" : "bg-gray-300 dark:bg-gray-600"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                  speakAfter ? "translate-x-5" : ""
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Error display */}
           {error && (
             <div className="flex items-center gap-2 text-xs text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">
               <AlertCircle className="w-3 h-3 flex-shrink-0" />
@@ -334,6 +713,7 @@ function QuickCreateModal({
             </div>
           )}
 
+          {/* Test result */}
           {isEditing && testResult && (
             <div
               className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${
@@ -355,7 +735,8 @@ function QuickCreateModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between px-5 py-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 rounded-b-xl">
+        {/* Footer */}
+        <div className="flex items-center justify-between px-5 py-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 rounded-b-xl flex-shrink-0">
           <div>
             {isEditing && (
               <button
@@ -389,7 +770,7 @@ function QuickCreateModal({
               ) : (
                 <Save className="w-3 h-3" />
               )}
-              {isEditing ? "Save Changes" : "Save & Connect"}
+              {isEditing ? "Update" : "Save & Connect"}
             </button>
           </div>
         </div>
