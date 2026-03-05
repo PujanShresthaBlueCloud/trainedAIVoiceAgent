@@ -28,45 +28,58 @@ def _build_stt(agent_config: dict) -> deepgram.STT:
         model="nova-3",
         language=language[:2] if language else "en",
         api_key=settings.DEEPGRAM_API_KEY,
+        no_delay=True,
+        endpointing_ms=100,
+        smart_format=False,
+        punctuate=False,
+        interim_results=True,
     )
 
 
 def _build_llm(agent_config: dict):
     """Build LLM plugin from agent config, supporting multiple providers."""
     model = agent_config.get("llm_model", "gpt-4")
+    temperature = 0.7
 
     if model.startswith("claude"):
         return anthropic.LLM(
             model=model,
             api_key=settings.ANTHROPIC_API_KEY,
+            temperature=temperature,
         )
     elif model.startswith("deepseek"):
         return openai.LLM(
             model=model,
             base_url="https://api.deepseek.com",
             api_key=settings.DEEPSEEK_API_KEY,
+            temperature=temperature,
         )
     elif model.startswith("llama") or model.startswith("mixtral"):
         return openai.LLM(
             model=model,
             base_url="https://api.groq.com/openai/v1",
             api_key=settings.GROQ_API_KEY,
+            temperature=temperature,
         )
     else:
         # Default: OpenAI (gpt-*)
         return openai.LLM(
             model=model,
             api_key=settings.OPENAI_API_KEY,
+            temperature=temperature,
         )
 
 
 def _build_tts(agent_config: dict) -> cartesia.TTS:
     """Build Cartesia TTS plugin from agent config."""
     language = agent_config.get("language", "en-US")
+    voice_id = agent_config.get("voice_id", None)
     return cartesia.TTS(
         model="sonic-3",
         language=language[:2] if language else "en",
         api_key=settings.CARTESIA_API_KEY,
+        speed="fast",
+        **({"voice": voice_id} if voice_id else {}),
     )
 
 
@@ -201,17 +214,26 @@ async def entrypoint(ctx: agents.JobContext):
     stt = _build_stt(agent_config)
     llm = _build_llm(agent_config)
     tts = _build_tts(agent_config)
-    vad = silero.VAD.load()
+    vad = silero.VAD.load(
+        min_speech_duration=0.05,
+        min_silence_duration=0.15,
+        prefix_padding_duration=0.1,
+        activation_threshold=0.4,
+    )
 
     # Build agent with tools
     agent = _build_agent(agent_config, call_id)
 
-    # Create and start the session
+    # Create and start the session with low-latency settings
     session = AgentSession(
         stt=stt,
         llm=llm,
         tts=tts,
         vad=vad,
+        min_endpointing_delay=0.3,
+        max_endpointing_delay=1.5,
+        preemptive_generation=True,
+        allow_interruptions=True,
     )
 
     started_at = time.time()

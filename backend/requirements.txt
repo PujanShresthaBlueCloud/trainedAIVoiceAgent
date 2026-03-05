@@ -20,3 +20,4 @@ livekit-plugins-openai>=1.0.0,<2
 livekit-plugins-elevenlabs>=1.0.0,<2
 livekit-plugins-silero>=1.0.0,<2
 livekit-plugins-anthropic>=1.0.0,<2
+livekit-plugins-cartesia>=1.0.0,<2
