@@ -16,7 +16,9 @@
 7. [Git Push Rejected (Secrets in History)](#7-git-push-rejected-secrets-in-history)
 8. [Frontend Build Errors](#8-frontend-build-errors)
 9. [Voice Pipeline Not Responding](#9-voice-pipeline-not-responding)
-10. [Quick Diagnostic Commands](#10-quick-diagnostic-commands)
+10. [LiveKit Agent Issues](#10-livekit-agent-issues)
+11. [AI Chat Issues](#11-ai-chat-issues)
+12. [Quick Diagnostic Commands](#12-quick-diagnostic-commands)
 
 ---
 
@@ -150,6 +152,12 @@ google-generativeai==0.4.0
 groq>=1.0.0
 twilio==9.0.0
 python-multipart==0.0.9
+livekit>=1.0.0,<2
+livekit-agents>=1.0.0,<2
+livekit-plugins-openai>=1.0.0,<2
+livekit-plugins-deepgram>=1.0.0,<2
+livekit-plugins-cartesia>=1.0.0,<2
+livekit-plugins-silero>=1.0.0,<2
 ```
 
 **Lesson learned:** When upgrading `supabase`, ALL HTTP-based SDKs (`openai`, `anthropic`, `groq`) must also be upgraded because `supabase` forces a newer `httpx` version that breaks older SDKs.
@@ -280,6 +288,8 @@ CREATE INDEX IF NOT EXISTS idx_transcript_entries_call_id ON transcript_entries(
 CREATE INDEX IF NOT EXISTS idx_function_call_logs_call_id ON function_call_logs(call_id);
 ```
 
+Or use the migration endpoint: `POST http://localhost:8000/api/migrate`
+
 ---
 
 ## 3. Python Import Path Issues
@@ -319,10 +329,6 @@ from voice.functions import ...              → from app.voice.functions import
 from config import settings                  → from app.config import settings
 from database import get_supabase            → from app.database import get_supabase
 
-# ws/ files:
-from voice.session_browser import ...        → from app.voice.session_browser import ...
-from voice.session_twilio import ...         → from app.voice.session_twilio import ...
-
 # routers/ files:
 from database import get_supabase            → from app.database import get_supabase
 from config import settings                  → from app.config import settings
@@ -331,7 +337,8 @@ from config import settings                  → from app.config import settings
 **Correct startup command (from `backend/` directory):**
 ```bash
 cd backend
-./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+source venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ---
@@ -468,6 +475,8 @@ ws.onclose = () => {
 };
 ```
 
+**Note:** The current architecture uses **LiveKit WebRTC** for voice calls instead of direct WebSocket audio streaming. The `useVoiceSession.ts` hook now uses the LiveKit SDK to connect to a LiveKit room, so direct WebSocket issues are less common for voice calls.
+
 ---
 
 ### Issue 5b: Deepgram `extra_headers` → `additional_headers`
@@ -489,17 +498,7 @@ self._ws = await websockets.connect(url, extra_headers=headers)
 self._ws = await websockets.connect(url, additional_headers=headers)
 ```
 
-Also added error handling so Deepgram connection failure doesn't crash the entire WebSocket session:
-```python
-try:
-    self._ws = await websockets.connect(url, additional_headers=headers)
-    self._running = True
-    asyncio.create_task(self._receive_loop())
-except Exception as e:
-    logger.error(f"Deepgram STT connection failed: {e}")
-    self._running = False
-    self._ws = None
-```
+**Note:** In the current LiveKit-based architecture, Deepgram STT is managed by the `livekit-plugins-deepgram` package within the LiveKit agent worker. Direct WebSocket connections to Deepgram are no longer used.
 
 ---
 
@@ -658,64 +657,283 @@ Added rule override in `frontend/.eslintrc.json`:
 ## 9. Voice Pipeline Not Responding
 
 ### Symptom
-User speaks into microphone, STT produces text, but AI never responds with voice.
+User speaks into microphone, but AI never responds with voice.
+
+### Current Architecture (LiveKit-based)
+
+The voice pipeline now runs through **LiveKit** with a dedicated agent worker:
+
+```
+Browser → LiveKit Room (WebRTC) → Agent Worker → Browser
+                                    ├── Deepgram STT (nova-3)
+                                    ├── LLM (multi-provider)
+                                    └── Cartesia TTS (sonic-3)
+```
 
 ### Diagnostic Steps
 
-```bash
-# 1. Test Deepgram STT
-python -c "
-import asyncio, websockets, json
-async def test():
-    url = 'wss://api.deepgram.com/v1/listen?language=en-US&sample_rate=16000&encoding=linear16&channels=1&model=nova-2'
-    headers = {'Authorization': 'Token YOUR_DEEPGRAM_KEY'}
-    ws = await websockets.connect(url, additional_headers=headers)
-    print('STT: Connected')
-    await ws.send(b'\x00' * 3200)
-    await ws.send(json.dumps({'type': 'CloseStream'}))
-    async for msg in ws:
-        print('STT response:', json.loads(msg).get('type'))
-asyncio.run(test())
-"
+1. **Is the LiveKit server running?**
+   ```bash
+   # Check Docker container
+   docker ps | grep livekit
+   # Or check health
+   curl http://localhost:7880
+   ```
 
-# 2. Test LLM
-python -c "
-import asyncio
-from app.services.llm import stream_llm_response
-async def test():
-    msgs = [{'role': 'system', 'content': 'Be brief.'}, {'role': 'user', 'content': 'Hello'}]
-    async for chunk in stream_llm_response(msgs, model='deepseek-chat'):
-        if chunk['type'] == 'text_delta': print(chunk['content'], end='')
-    print()
-asyncio.run(test())
-"
+2. **Is the agent worker registered?**
+   Check the agent worker terminal for:
+   ```
+   registered worker  {"agent_name": "", "id": "AW_xxxxx", "url": "ws://localhost:7880"}
+   ```
+   If not connected, check `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` in `backend/.env`.
 
-# 3. Test TTS
-python -c "
-import asyncio
-from app.services.elevenlabs_tts import synthesize_speech
-async def test():
-    total = 0
-    async for chunk in synthesize_speech('Hello world'):
-        total += len(chunk)
-    print(f'TTS: {total} bytes')
-asyncio.run(test())
-"
-```
+3. **Does the backend generate a LiveKit token?**
+   ```bash
+   curl -X POST http://localhost:8000/api/livekit/token \
+     -H "Content-Type: application/json" \
+     -d '{"agent_id": "YOUR_AGENT_ID"}'
+   ```
+   Should return `{"token": "...", "url": "ws://localhost:7880"}`.
 
-### Root Cause (in our case)
+4. **Check diagnostics endpoint:**
+   ```bash
+   curl http://localhost:8000/api/diagnostics
+   ```
+   Verify `supabase`, `deepgram`, `livekit`, and at least one LLM provider show `true`.
+
+5. **Are there Python errors in the agent worker terminal?**
+   Common issues: missing API keys, import errors, TTS/STT initialization failures.
+
+### Historical Root Cause (pre-LiveKit)
 The `openai==1.12.0` SDK was crashing silently due to `httpx` version incompatibility (see Issue 1c). The LLM call raised a `TypeError` which was caught by a broad `except` in the voice session, so no response was generated.
 
 ### General Checklist
-1. Is the backend running? (`curl http://localhost:8000/health`)
-2. Does Deepgram connect? (check backend logs for "Deepgram STT connected")
-3. Does the LLM respond? (test directly with the script above)
-4. Does TTS generate audio? (test directly with the script above)
-5. Are there Python errors in the backend terminal?
+1. LiveKit server running? (`docker ps` or LiveKit Cloud dashboard)
+2. Agent worker registered? (check terminal output)
+3. Backend healthy? (`curl http://localhost:8000/health`)
+4. API keys configured? (`curl http://localhost:8000/api/diagnostics`)
+5. Browser microphone permission granted?
+6. Any errors in browser console? (F12 → Console)
 
 ---
 
-## 10. Quick Diagnostic Commands
+## 10. LiveKit Agent Issues
+
+### Issue 10a: Cartesia TTS `speed` parameter type error
+
+**Error:**
+```
+ValueError: speed must be a float for sonic-3 model
+```
+
+**Root Cause:**
+The Cartesia TTS plugin expects `speed` as a `float`, not a `string`. Passing `speed="fast"` crashes the TTS initialization.
+
+**Fix in `backend/livekit_agent.py`:**
+```python
+# WRONG:
+cartesia.TTS(model="sonic-3", speed="fast", ...)
+
+# CORRECT:
+cartesia.TTS(model="sonic-3", speed=1.0, ...)
+```
+
+Valid speed values: `0.5` (slow) to `2.0` (fast). Default `1.0` is recommended for natural speech.
+
+---
+
+### Issue 10b: Voice changing between calls (wrong voice provider)
+
+**Symptom:**
+The agent's TTS voice is different on every call, or uses a random/default voice instead of the configured one.
+
+**Root Cause:**
+The agent's `voice_id` field stores **ElevenLabs** voice IDs (e.g., `21m00Tcm4TlvDq8ikWAM`), but the LiveKit agent uses **Cartesia** TTS. Passing an ElevenLabs voice ID to Cartesia causes it to fall back to a default/random voice.
+
+Cartesia and ElevenLabs have different voice ID formats:
+- **Cartesia:** UUID format, e.g. `f786b574-daa5-4673-aa0c-cbe3e8534c02`
+- **ElevenLabs:** Alphanumeric string, e.g. `21m00Tcm4TlvDq8ikWAM`
+
+**Fix:**
+1. Added `cartesia_voice_id` to agent metadata (separate from the ElevenLabs `voice_id` field)
+2. Updated `_build_tts()` in `livekit_agent.py` to read from `metadata.cartesia_voice_id`:
+
+```python
+def _build_tts(agent_config: dict) -> cartesia.TTS:
+    language = agent_config.get("language", "en-US")
+    metadata = agent_config.get("metadata") or {}
+    cartesia_voice = metadata.get("cartesia_voice_id")
+    return cartesia.TTS(
+        model="sonic-3",
+        language=language[:2] if language else "en",
+        api_key=settings.CARTESIA_API_KEY,
+        **({"voice": cartesia_voice} if cartesia_voice else {}),
+    )
+```
+
+3. Added "Voice ID (Cartesia)" field to the agent detail page UI alongside the existing "Voice ID (ElevenLabs)" field.
+
+**To configure a Cartesia voice:**
+1. Browse voices at [play.cartesia.ai](https://play.cartesia.ai)
+2. Copy the voice ID (UUID format)
+3. Paste into the "Voice ID (Cartesia)" field on the agent detail page
+4. Save the agent
+
+---
+
+### Issue 10c: Agent takes 10+ seconds to respond on call start
+
+**Symptom:**
+When a voice call starts, there is a 10+ second delay before the agent speaks.
+
+**Root Causes (multiple):**
+
+**1. N+1 database query problem:**
+Each custom tool triggered a separate Supabase query during agent construction. An agent with 5 custom tools would make 5 separate DB queries sequentially.
+
+**Fix:** Batch-load all custom functions in a single query:
+```python
+def _load_custom_functions(tool_names: list[str]) -> dict[str, dict]:
+    custom_names = [n for n in tool_names if n not in BUILT_IN_TOOLS]
+    if not custom_names:
+        return {}
+    try:
+        db = get_supabase()
+        result = (
+            db.table("custom_functions")
+            .select("name,description")
+            .eq("is_active", True)
+            .in_("name", custom_names)
+            .execute()
+        )
+        return {f["name"]: f for f in (result.data or [])}
+    except Exception as e:
+        logger.error(f"Failed to batch-load custom functions: {e}")
+        return {}
+```
+
+**2. No welcome message — perceived latency:**
+Without a welcome message, the agent waits silently for the user to speak first, making it seem unresponsive.
+
+**Fix:** Added welcome message support after session start:
+```python
+agent_metadata = agent_config.get("metadata") or {}
+welcome_msg = agent_metadata.get("welcome_message", "")
+ai_speaks_first = agent_metadata.get("ai_speaks_first", True)
+
+if ai_speaks_first and welcome_msg:
+    await session.say(welcome_msg)
+elif ai_speaks_first:
+    await session.say("Hello! How can I help you today?")
+```
+
+**3. Low-latency settings not configured:**
+Ensure the agent session has aggressive endpointing and preemptive generation:
+```python
+session = AgentSession(
+    stt=_build_stt(agent_config),
+    llm=_build_llm(agent_config),
+    tts=_build_tts(agent_config),
+    vad=silero.VAD.load(
+        min_silence_duration=0.15,
+        activation_threshold=0.4,
+        min_speech_duration=0.05,
+    ),
+    min_endpointing_delay=0.3,
+    max_endpointing_delay=1.5,
+    preemptive_generation=True,
+    allow_interruptions=True,
+)
+```
+
+---
+
+### Issue 10d: Agent worker not connecting to LiveKit
+
+**Symptom:**
+Agent worker starts but never shows "registered worker" message.
+
+**Possible Causes:**
+
+1. **LiveKit server not running:**
+   ```bash
+   docker ps | grep livekit  # Should show a running container
+   ```
+
+2. **Wrong LiveKit URL:**
+   ```bash
+   # backend/.env
+   LIVEKIT_URL=ws://localhost:7880  # Must match the LiveKit server
+   ```
+
+3. **API key mismatch:**
+   The `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` must match what was configured when starting the LiveKit server:
+   ```bash
+   # Docker command must use the same keys:
+   docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp \
+     -e LIVEKIT_KEYS="devkey: devsecret" \
+     livekit/livekit-server
+   ```
+
+4. **LiveKit agent packages not installed:**
+   ```bash
+   pip install livekit-agents livekit-plugins-openai livekit-plugins-deepgram \
+     livekit-plugins-cartesia livekit-plugins-silero
+   ```
+
+---
+
+## 11. AI Chat Issues
+
+### Issue 11a: Chat not responding or returning errors
+
+**Symptom:**
+Messages sent in the AI chat tab don't get responses, or show an error.
+
+**Diagnostic Steps:**
+
+1. **Check browser console (F12)** for errors on the `/api/chat` request
+2. **Check LLM API keys in `frontend/.env.local`:**
+   ```env
+   OPENAI_API_KEY=sk-...
+   ANTHROPIC_API_KEY=sk-ant-...
+   DEEPSEEK_API_KEY=sk-...
+   GOOGLE_API_KEY=...
+   GROQ_API_KEY=gsk_...
+   ```
+3. **Verify the agent has a valid LLM model set** (e.g., `gpt-4`, `claude-sonnet-4-5-20250929`, `deepseek-chat`)
+
+### Issue 11b: Chat tool calls failing
+
+**Symptom:**
+The chat shows tool call attempts but they fail or hang.
+
+**Root Cause:**
+Custom function webhooks must be reachable from the **Next.js frontend server** (not just the backend), since the chat API route (`/api/chat`) executes tool calls directly.
+
+**Fix:**
+- Ensure webhook URLs are accessible from the machine running the frontend
+- Check `frontend/.env.local` has `NEXT_PUBLIC_API_URL` set correctly for fetching function definitions
+
+### Issue 11c: Wrong LLM provider used
+
+**Symptom:**
+Chat returns "API key not configured" error for a model.
+
+**Root Cause:**
+The chat API routes to providers based on model name prefix. Ensure the correct API key is set for the model:
+
+| Model prefix | Required key in `frontend/.env.local` |
+|---|---|
+| `gpt-*` | `OPENAI_API_KEY` |
+| `claude-*` | `ANTHROPIC_API_KEY` |
+| `deepseek-*` | `DEEPSEEK_API_KEY` |
+| `gemini-*` | `GOOGLE_API_KEY` |
+| `llama-*`, `mixtral-*` | `GROQ_API_KEY` |
+
+---
+
+## 12. Quick Diagnostic Commands
 
 Run these from the `backend/` directory with the backend venv activated:
 
@@ -723,8 +941,16 @@ Run these from the `backend/` directory with the backend venv activated:
 # Check backend health
 curl -s http://localhost:8000/health
 
+# Check all integrations (Supabase, Deepgram, LiveKit, LLM providers)
+curl -s http://localhost:8000/api/diagnostics | python -m json.tool
+
 # Check if agents API works
-curl -s http://localhost:8000/api/agents
+curl -s http://localhost:8000/api/agents | python -m json.tool
+
+# Generate a LiveKit token (test token generation)
+curl -s -X POST http://localhost:8000/api/livekit/token \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "YOUR_AGENT_ID"}' | python -m json.tool
 
 # Check CORS headers
 curl -s -I -X OPTIONS \
@@ -732,19 +958,8 @@ curl -s -I -X OPTIONS \
   -H "Access-Control-Request-Method: GET" \
   http://localhost:8000/api/agents | grep access-control
 
-# Test WebSocket connection
-python -c "
-import asyncio, websockets
-async def test():
-    ws = await websockets.connect('ws://localhost:8000/ws/voice-browser')
-    msg = await asyncio.wait_for(ws.recv(), timeout=5)
-    print('WS OK:', msg)
-    await ws.close()
-asyncio.run(test())
-"
-
 # Check installed package versions
-pip show supabase openai anthropic httpx websockets | grep -E '^(Name|Version)'
+pip show supabase openai anthropic httpx websockets livekit-agents | grep -E '^(Name|Version)'
 
 # Check env file is loading
 python -c "
@@ -752,14 +967,21 @@ from app.config import settings
 print('SUPABASE_URL:', settings.SUPABASE_URL[:30] + '...' if settings.SUPABASE_URL else 'EMPTY')
 print('OPENAI_API_KEY:', 'SET' if settings.OPENAI_API_KEY else 'EMPTY')
 print('DEEPGRAM_API_KEY:', 'SET' if settings.DEEPGRAM_API_KEY else 'EMPTY')
-print('ELEVENLABS_API_KEY:', 'SET' if settings.ELEVENLABS_API_KEY else 'EMPTY')
+print('CARTESIA_API_KEY:', 'SET' if settings.CARTESIA_API_KEY else 'EMPTY')
+print('LIVEKIT_API_KEY:', 'SET' if settings.LIVEKIT_API_KEY else 'EMPTY')
+print('LIVEKIT_API_SECRET:', 'SET' if settings.LIVEKIT_API_SECRET else 'EMPTY')
 "
 
-# Check what port 8000 is using
-lsof -i :8000 | grep LISTEN
+# Check what ports are in use
+lsof -i :3000 | grep LISTEN   # Frontend
+lsof -i :7880 | grep LISTEN   # LiveKit
+lsof -i :8000 | grep LISTEN   # Backend
 
-# Kill process on port 8000
+# Kill process on a port
 kill $(lsof -t -i:8000)
+
+# Check LiveKit server is running (Docker)
+docker ps | grep livekit
 ```
 
 ---
@@ -767,16 +989,30 @@ kill $(lsof -t -i:8000)
 ## Startup Cheat Sheet
 
 ```bash
-# Terminal 1: Backend
+# Terminal 1: LiveKit Server
+docker run --rm \
+  -p 7880:7880 \
+  -p 7881:7881 \
+  -p 7882:7882/udp \
+  -e LIVEKIT_KEYS="devkey: devsecret" \
+  livekit/livekit-server
+
+# Terminal 2: FastAPI Backend
 cd /path/to/trainedlogicaivoice/backend
 source venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Terminal 2: Frontend
+# Terminal 3: LiveKit Agent Worker
+cd /path/to/trainedlogicaivoice/backend
+source venv/bin/activate
+python livekit_agent.py dev
+
+# Terminal 4: Frontend
 cd /path/to/trainedlogicaivoice/frontend
 npm run dev
 
 # Verify
-open http://localhost:8000/docs    # Swagger UI
-open http://localhost:3000          # Frontend
+curl http://localhost:8000/health            # Backend health
+curl http://localhost:8000/api/diagnostics    # All integrations
+open http://localhost:3000                    # Frontend UI
 ```

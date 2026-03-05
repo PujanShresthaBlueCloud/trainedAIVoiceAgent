@@ -9,19 +9,21 @@ The platform runs as **4 processes**:
 | **LiveKit Server** | Media routing, WebRTC, SIP bridging | `ws://localhost:7880` |
 | **FastAPI Backend** | REST APIs, token generation, CRUD | `http://localhost:8000` |
 | **LiveKit Agent Worker** | Voice pipeline (STT → LLM → TTS), tool execution | Connects to LiveKit |
-| **Next.js Frontend** | Web UI for managing agents, calls, test calls | `http://localhost:3000` |
+| **Next.js Frontend** | Web UI for managing agents, calls, test calls, chat | `http://localhost:3000` |
 
-**Voice call flow:** Browser → LiveKit (WebRTC) → Agent Worker (Deepgram STT → LLM → ElevenLabs TTS) → LiveKit → Browser
+**Voice call flow:** Browser → LiveKit (WebRTC) → Agent Worker (Deepgram STT → LLM → Cartesia TTS) → LiveKit → Browser
+
+**Chat flow:** Browser → Next.js `/api/chat` (SSE) → LLM Provider (OpenAI/Anthropic/etc.) → Browser (streaming)
 
 ---
 
 ## Prerequisites
 
-- **Python 3.12+**
+- **Python 3.11+**
 - **Node.js 18+** and npm
-- **Docker** (for LiveKit server)
+- **Docker** (for LiveKit server) or LiveKit Cloud account
 - **Supabase** project (for database)
-- API keys for: Deepgram, ElevenLabs, OpenAI (and/or Anthropic, DeepSeek, Groq)
+- API keys for: Deepgram, Cartesia, and at least one LLM provider (OpenAI, Anthropic, DeepSeek, Groq)
 
 ---
 
@@ -41,11 +43,15 @@ trainedlogicaivoice/
 │   ├── requirements.txt
 │   └── .env                   # Environment variables (create this)
 ├── frontend/
-│   ├── app/                   # Next.js pages
+│   ├── app/                   # Next.js pages + API routes
+│   │   └── api/chat/route.ts  # Streaming chat API (SSE)
 │   ├── components/            # UI components
 │   ├── lib/                   # API client, LiveKit voice hook
 │   └── package.json
-└── SETUP.md                   # This file
+├── README.md
+├── SETUP.md                   # This file
+├── DOCUMENTATION.md           # Full technical documentation
+└── FIXES_AND_TROUBLESHOOTING.md
 ```
 
 ---
@@ -66,26 +72,29 @@ This creates the tables: `agents`, `calls`, `transcript_entries`, `function_call
 
 ### Backend (`backend/.env`)
 
-Create `backend/.env` with the following:
+Create `backend/.env` from the example:
+
+```bash
+cp backend/.env.example backend/.env
+```
 
 ```env
 # === Required ===
 
 # Supabase
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-supabase-anon-key
+SUPABASE_KEY=your-supabase-service-role-key
 
-# LiveKit (use these defaults for local development)
-LIVEKIT_URL=ws://localhost:7880
+# LiveKit
+LIVEKIT_URL=ws://localhost:7880          # or wss://your-app.livekit.cloud
 LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=devsecret
 
-# Deepgram (Speech-to-Text)
+# Speech-to-Text (Deepgram)
 DEEPGRAM_API_KEY=your-deepgram-api-key
 
-# ElevenLabs (Text-to-Speech)
-ELEVENLABS_API_KEY=your-elevenlabs-api-key
-ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+# Text-to-Speech (Cartesia - used for voice calls)
+CARTESIA_API_KEY=your-cartesia-api-key
 
 # At least one LLM provider:
 OPENAI_API_KEY=your-openai-api-key
@@ -100,28 +109,47 @@ GOOGLE_API_KEY=             # For gemini-* models
 
 # === Optional ===
 
-# Twilio (for phone number sync, not needed for browser calls)
+# ElevenLabs (alternative TTS, not used by LiveKit agent)
+ELEVENLABS_API_KEY=
+ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+
+# Twilio (for phone number management, not needed for browser calls)
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_PHONE_NUMBER=
 
+# LiveKit SIP (for phone dial-out)
+LIVEKIT_TRUNK_ID=
+
 # Knowledge Base / RAG
 PINECONE_API_KEY=
 EMBEDDING_MODEL=text-embedding-3-small
+CHUNK_SIZE=500
+CHUNK_OVERLAP=50
+RAG_TOP_K=5
 
 APP_URL=http://localhost:8000
 ```
 
-### Frontend
-
-The frontend uses environment variables from `frontend/.env.local` (optional):
+### Frontend (`frontend/.env.local`)
 
 ```env
+# Backend API URL
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+
+# LiveKit URL (for browser WebRTC client)
 NEXT_PUBLIC_LIVEKIT_URL=ws://localhost:7880
+
+# LLM keys for the /api/chat streaming endpoint
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4
+ANTHROPIC_API_KEY=sk-ant-...
+DEEPSEEK_API_KEY=sk-...
+GOOGLE_API_KEY=...
+GROQ_API_KEY=gsk_...
 ```
 
-These default to `http://127.0.0.1:8000` and `ws://localhost:7880` if not set, so you typically don't need to create this file for local development.
+These default to `http://127.0.0.1:8000` and `ws://localhost:7880` if not set.
 
 ---
 
@@ -147,7 +175,7 @@ npm install
 
 ## 5. Start All Services
 
-You need **4 terminal windows** (or run them in the background). Start them in this order:
+You need **4 terminal windows**. Start them in this order:
 
 ### Terminal 1: LiveKit Server (Docker)
 
@@ -162,12 +190,14 @@ docker run --rm \
 
 Wait until you see `starting in development mode` in the logs.
 
+**Alternative:** Use [LiveKit Cloud](https://livekit.io/cloud) — set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` to your cloud values.
+
 ### Terminal 2: FastAPI Backend
 
 ```bash
 cd backend
 source venv/bin/activate
-uvicorn app.main:app --port 8000
+uvicorn app.main:app --port 8000 --reload
 ```
 
 Wait until you see `Application startup complete`.
@@ -208,7 +238,7 @@ curl http://localhost:8000/health
 curl http://localhost:8000/api/diagnostics
 ```
 
-You should see `true` for `supabase`, `deepgram`, `elevenlabs`, `livekit`, and at least one LLM provider (`openai`, `anthropic`, `deepseek`, etc.).
+You should see `true` for `supabase`, `deepgram`, `livekit`, and at least one LLM provider.
 
 ### Check agent worker is connected
 
@@ -227,128 +257,103 @@ Open **http://localhost:3000** in your browser.
 
 1. Go to **Agents** page (`/agents`)
 2. Click **Create Agent**
-3. Fill in:
-   - **Name**: e.g., "My Assistant"
-   - **System Prompt**: Instructions for the AI
-   - **LLM Model**: Choose from `gpt-4`, `claude-3-opus-20240229`, `deepseek-chat`, etc.
-   - **Voice ID**: ElevenLabs voice ID (default: Rachel)
-   - **Tools**: Enable built-in tools like `end_call`, `book_appointment`, etc.
+3. Fill in name, system prompt, LLM model, etc.
 4. Click **Create Agent**
+5. Click the agent card to open the detail page
 
-### Make a Test Call (Browser)
+### Configure Voice (Cartesia)
 
-1. On the Agents page, find your agent card
-2. Click **Test Call**
-3. Click **Start Call**
-4. Allow microphone access when prompted
+1. Open agent detail page (`/agents/[id]`)
+2. In **Model & Voice** section, paste a Cartesia voice ID
+3. Browse voices at [play.cartesia.ai](https://play.cartesia.ai)
+4. If left blank, Cartesia uses a stable default voice
+
+### Make a Test Voice Call
+
+1. On the agent detail page, select the **Audio** tab on the right
+2. Click **Start Call**
+3. Allow microphone access when prompted
+4. The agent will greet you with the welcome message
 5. Speak to the agent — you should hear a response
 6. Click **End Call** when done
+
+### Use AI Chat
+
+1. On the agent detail page, select the **Chat** tab on the right
+2. Type a message and press Enter
+3. The agent responds using the same system prompt and tools
+4. Tool calls are shown inline with results
+
+### Add Webhook Integrations
+
+1. In the **Functions** section of the agent detail page
+2. Click an integration template (n8n, Zapier, Make, or Custom)
+3. Fill in webhook URL, function name, parameters
+4. Click **Save & Connect**
 
 ### View Call History
 
 Go to **Calls** page (`/calls`) to see all past calls, including transcripts.
 
-### Make an Outbound Call (requires SIP setup)
-
-Go to **Calls** page → **Outbound Call** → enter a phone number. This requires LiveKit SIP trunk configuration.
-
 ---
 
-## API Endpoints
+## 8. LLM Provider Mapping
 
-### Core APIs
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| GET | `/api/diagnostics` | Check all integration statuses |
-| POST | `/api/migrate` | Get database migration SQL |
-
-### LiveKit
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/livekit/token` | Generate token for browser voice call |
-| GET | `/api/livekit/rooms` | List active LiveKit rooms |
-
-### Agents
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/agents` | List all agents |
-| POST | `/api/agents` | Create agent |
-| GET | `/api/agents/:id` | Get agent |
-| PUT | `/api/agents/:id` | Update agent |
-| DELETE | `/api/agents/:id` | Delete agent |
-
-### Calls
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/calls` | List calls |
-| GET | `/api/calls/:id` | Get call details |
-| GET | `/api/calls/:id/transcript` | Get call transcript |
-| POST | `/api/calls/outbound` | Make outbound call (SIP) |
-| DELETE | `/api/calls/:id` | Delete call |
-
-### Other
-
-| Prefix | Description |
-|--------|-------------|
-| `/api/system-prompts` | CRUD for reusable system prompts |
-| `/api/custom-functions` | CRUD for webhook-based custom tools |
-| `/api/knowledge-bases` | CRUD for RAG knowledge bases + file upload |
-| `/api/phone-numbers` | Phone number management |
-
----
-
-## LLM Provider Mapping
-
-The agent worker automatically routes to the correct provider based on model name:
+The agent worker and chat API automatically route to the correct provider based on model name:
 
 | Model prefix | Provider | Required env var |
 |-------------|----------|-----------------|
 | `gpt-*` | OpenAI | `OPENAI_API_KEY` |
 | `claude-*` | Anthropic | `ANTHROPIC_API_KEY` |
 | `deepseek-*` | DeepSeek | `DEEPSEEK_API_KEY` |
+| `gemini-*` | Google | `GOOGLE_API_KEY` |
 | `llama-*`, `mixtral-*` | Groq | `GROQ_API_KEY` |
+
+---
+
+## 9. Voice Pipeline Configuration
+
+The LiveKit agent (`backend/livekit_agent.py`) uses these components:
+
+| Component | Provider | Model | Key Settings |
+|-----------|----------|-------|-------------|
+| STT | Deepgram | nova-3 | `no_delay=True`, `endpointing_ms=100`, `interim_results=True` |
+| LLM | Multi-provider | Per agent config | `temperature=0.7`, streaming enabled |
+| TTS | Cartesia | sonic-3 | Voice from `metadata.cartesia_voice_id` |
+| VAD | Silero | — | `min_silence_duration=0.15`, `activation_threshold=0.4` |
+
+**Session settings:** `min_endpointing_delay=0.3s`, `max_endpointing_delay=1.5s`, `preemptive_generation=True`, `allow_interruptions=True`
+
+**Welcome message:** Reads `metadata.welcome_message` and `metadata.ai_speaks_first` from agent config. If `ai_speaks_first` is true (default), the agent speaks the welcome message immediately on connect.
 
 ---
 
 ## Troubleshooting
 
-### "LiveKit not configured"
-Make sure `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` are set in `backend/.env` and match the `LIVEKIT_KEYS` in the Docker command.
+See [FIXES_AND_TROUBLESHOOTING.md](FIXES_AND_TROUBLESHOOTING.md) for a comprehensive troubleshooting guide.
 
-### Agent worker shows "registered worker" but calls don't work
-- Check that the LiveKit server is running (`docker ps` should show `livekit-server`)
-- Check that `LIVEKIT_URL` in `.env` matches the Docker port (`ws://localhost:7880`)
+### Quick checks
 
-### No audio playback in browser
-- Make sure you allowed microphone access
-- Check browser console for errors
-- LiveKit requires a secure context (HTTPS) in production; `localhost` works for development
-
-### Agent crashes with API key errors
-- Check the agent's `llm_model` setting matches an LLM provider you have configured
-- For example, if the agent uses `deepseek-chat`, you need `DEEPSEEK_API_KEY` set
-
-### Database tables not found
-- Run the migration: visit `http://localhost:8000/api/migrate` and execute the SQL in Supabase SQL Editor
-
-### Docker not running
-- Start Docker Desktop, then retry the `docker run` command
-- On Linux: `sudo systemctl start docker`
+| Issue | Check |
+|-------|-------|
+| "LiveKit not configured" | `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` in `backend/.env` |
+| Agent worker not connecting | LiveKit server running, `LIVEKIT_URL` matches Docker/Cloud URL |
+| No audio in browser | Microphone permission, browser console errors |
+| Agent uses wrong voice | Set `cartesia_voice_id` in agent metadata (not ElevenLabs voice_id) |
+| Agent takes 10+ sec to respond | Ensure `livekit_agent.py` has low-latency settings, check LLM model speed |
+| Chat not working | LLM API keys in `frontend/.env.local`, check `/api/chat` errors |
+| Database tables not found | Run migration: `POST http://localhost:8000/api/migrate` |
 
 ---
 
 ## Production Deployment
 
-For production, you'll need to:
+For production:
 
-1. **LiveKit Server**: Deploy a self-hosted instance or use [LiveKit Cloud](https://livekit.io/cloud)
-2. **Update URLs**: Set `LIVEKIT_URL` to your production LiveKit server URL (use `wss://`)
-3. **Update API keys**: Generate production LiveKit API key/secret
-4. **Frontend**: Set `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_LIVEKIT_URL` to production URLs
-5. **SIP (for phone calls)**: Configure a LiveKit SIP trunk with your Twilio or SIP provider
-6. **HTTPS**: Required for WebRTC in production browsers
+1. **LiveKit Server**: Use [LiveKit Cloud](https://livekit.io/cloud) or deploy self-hosted
+2. **Update URLs**: `LIVEKIT_URL` to `wss://...`, `NEXT_PUBLIC_LIVEKIT_URL` to `wss://...`
+3. **HTTPS**: Required for WebRTC in production browsers
+4. **CORS**: Restrict origins in `backend/app/main.py`
+5. **Frontend**: Deploy to Vercel, set environment variables
+6. **Backend**: Deploy to Railway/Render/AWS, run both `uvicorn` and `livekit_agent.py`
+7. **SIP (phone calls)**: Configure LiveKit SIP trunk + Twilio

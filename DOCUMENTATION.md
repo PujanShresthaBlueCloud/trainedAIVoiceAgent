@@ -1,6 +1,6 @@
 # Voice AI Platform — Complete Documentation
 
-> A full-stack Retell AI clone with Python (FastAPI) backend, Next.js frontend, Supabase database, multi-provider LLM, Deepgram STT, ElevenLabs TTS, and Twilio telephony.
+> A full-stack voice AI platform with LiveKit real-time voice calls (Deepgram STT → Multi-LLM → Cartesia TTS), streaming AI chat, custom webhook functions, integration templates, and RAG-powered knowledge bases.
 
 ---
 
@@ -8,19 +8,16 @@
 
 1. [Architecture Overview](#architecture-overview)
 2. [Project Structure](#project-structure)
-3. [Setup & Installation](#setup--installation)
-4. [Environment Variables](#environment-variables)
-5. [Database Setup (Supabase)](#database-setup-supabase)
-6. [Running the Project](#running-the-project)
-7. [API Endpoints Reference](#api-endpoints-reference)
-8. [WebSocket Endpoints](#websocket-endpoints)
-9. [Important Files Guide](#important-files-guide)
-10. [Voice Pipeline Architecture](#voice-pipeline-architecture)
-11. [LLM Provider Configuration](#llm-provider-configuration)
-12. [Twilio Integration](#twilio-integration)
-13. [Frontend Pages & Components](#frontend-pages--components)
-14. [Monitoring & Debugging](#monitoring--debugging)
-15. [Troubleshooting](#troubleshooting)
+3. [Voice Pipeline Architecture](#voice-pipeline-architecture)
+4. [AI Chat Architecture](#ai-chat-architecture)
+5. [Agent Configuration](#agent-configuration)
+6. [Custom Functions & Integrations](#custom-functions--integrations)
+7. [Knowledge Base (RAG)](#knowledge-base-rag)
+8. [LLM Provider Configuration](#llm-provider-configuration)
+9. [API Endpoints Reference](#api-endpoints-reference)
+10. [Frontend Pages & Components](#frontend-pages--components)
+11. [Important Files Guide](#important-files-guide)
+12. [Monitoring & Debugging](#monitoring--debugging)
 
 ---
 
@@ -28,43 +25,44 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        FRONTEND (Next.js 14)                     │
+│                    FRONTEND (Next.js 14)                         │
 │  localhost:3000                                                   │
 │  ┌──────────┬──────────┬──────────┬───────────┬───────────────┐  │
 │  │Dashboard │ Agents   │ Calls    │ Sys Prompts│ Custom Funcs  │  │
+│  │          │ Detail   │          │           │ Knowledge Base │  │
 │  └──────────┴──────────┴──────────┴───────────┴───────────────┘  │
-│       │ REST API (fetch)                │ WebSocket (PCM16)       │
-└───────┼─────────────────────────────────┼────────────────────────┘
-        │                                 │
-        ▼                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     BACKEND (FastAPI/Python)                      │
-│  localhost:8000                                                   │
-│                                                                   │
-│  REST API                          WebSocket Endpoints            │
-│  ┌─────────────────┐              ┌─────────────────────┐        │
-│  │ /api/agents      │              │ /ws/voice-browser    │        │
-│  │ /api/calls       │              │ /ws/voice-twilio     │        │
-│  │ /api/system-     │              └──────────┬──────────┘        │
-│  │   prompts        │                         │                   │
-│  │ /api/custom-     │              Voice Pipeline                 │
-│  │   functions      │              ┌──────────┴──────────┐        │
-│  │ /api/twilio/*    │              │ Deepgram STT (WS)    │        │
-│  └────────┬────────┘              │ LLM (multi-provider) │        │
-│           │                        │ ElevenLabs TTS (REST)│        │
-│           ▼                        └─────────────────────┘        │
-│  ┌─────────────────┐                                              │
-│  │   Supabase DB    │◄───────────────────────────────────────────│
-│  │   (PostgreSQL)   │                                              │
-│  └─────────────────┘                                              │
-└─────────────────────────────────────────────────────────────────┘
-        ▲
-        │ Twilio Media Streams (mulaw 8kHz)
-        │
-┌───────┴──────┐
-│   Twilio     │  Phone calls (inbound/outbound)
-│   PSTN       │
-└──────────────┘
+│       │ REST API                │ LiveKit       │ SSE Stream     │
+│       │ (fetch)                 │ (WebRTC)      │ (/api/chat)    │
+└───────┼─────────────────────────┼───────────────┼────────────────┘
+        │                         │               │
+        ▼                         ▼               ▼
+┌───────────────────┐   ┌─────────────────┐   ┌──────────────────┐
+│  FastAPI Backend   │   │  LiveKit Server  │   │  LLM Providers   │
+│  localhost:8000    │   │  :7880 (WS/RTC)  │   │  (OpenAI, etc.)  │
+│                    │   │                  │   └──────────────────┘
+│  REST API          │   │                  │
+│  Token generation  │   │                  │
+│  CRUD operations   │   └────────┬─────────┘
+│                    │            │
+└────────┬───────────┘            ▼
+         │              ┌─────────────────────┐
+         │              │  LiveKit Agent Worker │
+         │              │  (livekit_agent.py)   │
+         │              │                       │
+         │              │  Deepgram STT (nova-3)│
+         │              │  LLM (multi-provider) │
+         │              │  Cartesia TTS (sonic-3)│
+         │              │  Silero VAD            │
+         │              │  Tool Execution        │
+         │              └───────────┬───────────┘
+         │                          │
+         ▼                          ▼
+┌─────────────────────────────────────────┐
+│            Supabase (PostgreSQL)         │
+│  agents, calls, transcript_entries,      │
+│  custom_functions, system_prompts,       │
+│  knowledge_bases, phone_numbers          │
+└─────────────────────────────────────────┘
 ```
 
 ---
@@ -73,305 +71,345 @@
 
 ```
 trainedlogicaivoice/
-├── DOCUMENTATION.md              ← This file
+├── README.md
+├── SETUP.md
+├── DOCUMENTATION.md                  ← This file
+├── FIXES_AND_TROUBLESHOOTING.md
 │
-├── backend/                       ← Python FastAPI backend
-│   ├── .env.example               ← Environment variable template
-│   ├── requirements.txt           ← Python dependencies
-│   ├── config.py                  ← Pydantic Settings (all env vars)
-│   ├── database.py                ← Supabase client + SQL migration
-│   ├── main.py                    ← FastAPI app entry point
-│   │
-│   ├── routers/                   ← REST API route handlers
-│   │   ├── agents.py              ← CRUD /api/agents
-│   │   ├── calls.py               ← CRUD /api/calls + outbound
-│   │   ├── system_prompts.py      ← CRUD /api/system-prompts
-│   │   ├── custom_functions.py    ← CRUD /api/custom-functions
-│   │   └── twilio_webhooks.py     ← POST /api/twilio/* (TwiML)
-│   │
-│   ├── services/                  ← External service integrations
-│   │   ├── llm.py                 ← Multi-provider LLM streaming
-│   │   ├── deepgram_stt.py        ← Deepgram WebSocket STT client
-│   │   ├── elevenlabs_tts.py      ← ElevenLabs REST TTS streaming
-│   │   └── twilio_service.py      ← Twilio outbound call helper
-│   │
-│   ├── voice/                     ← Voice call pipeline
-│   │   ├── session.py             ← Base VoiceSession (STT→LLM→TTS)
-│   │   ├── session_browser.py     ← Browser WebSocket adapter (PCM16)
-│   │   ├── session_twilio.py      ← Twilio WebSocket adapter (mulaw)
-│   │   ├── audio_codec.py         ← mulaw ↔ PCM16 conversion
-│   │   ├── tools.py               ← Built-in tool definitions
-│   │   └── functions.py           ← Tool execution + webhook calls
-│   │
-│   └── ws/                        ← WebSocket endpoint definitions
-│       ├── browser.py             ← /ws/voice-browser endpoint
-│       └── twilio.py              ← /ws/voice-twilio endpoint
+├── backend/
+│   ├── .env.example                  # Environment variable template
+│   ├── requirements.txt              # Python dependencies
+│   ├── livekit_agent.py              # LiveKit agent worker (STT→LLM→TTS)
+│   └── app/
+│       ├── main.py                   # FastAPI app entry point + CORS
+│       ├── config.py                 # Pydantic Settings (all env vars)
+│       ├── database.py               # Supabase client + migration SQL
+│       ├── routers/
+│       │   ├── agents.py             # CRUD /api/agents
+│       │   ├── calls.py              # CRUD /api/calls + outbound
+│       │   ├── system_prompts.py     # CRUD /api/system-prompts
+│       │   ├── custom_functions.py   # CRUD /api/custom-functions + test
+│       │   ├── knowledge_bases.py    # CRUD /api/knowledge-bases + file upload
+│       │   ├── phone_numbers.py      # Phone number management
+│       │   └── livekit.py            # LiveKit token + room management
+│       ├── services/
+│       │   ├── livekit_service.py    # Room creation, token gen, SIP
+│       │   ├── vector_db.py          # Pinecone vector DB provider
+│       │   └── document_processor.py # Parse, chunk, embed documents
+│       └── voice/
+│           ├── tools.py              # Built-in tool definitions
+│           └── functions.py          # Tool execution (webhooks + retry)
 │
-└── frontend/                      ← Next.js 14 frontend
-    ├── .env.local                 ← Frontend env vars
-    ├── package.json               ← Node.js dependencies
-    ├── next.config.mjs            ← Next.js configuration
-    ├── tailwind.config.ts         ← Tailwind CSS config
-    ├── tsconfig.json              ← TypeScript config
-    │
-    ├── app/                       ← Next.js App Router pages
-    │   ├── layout.tsx             ← Root layout (sidebar + dark theme)
-    │   ├── page.tsx               ← Redirects to /dashboard
-    │   ├── globals.css            ← Global styles + Tailwind
-    │   ├── dashboard/page.tsx     ← Dashboard with stats
-    │   ├── agents/page.tsx        ← Agent CRUD + test call
-    │   ├── calls/page.tsx         ← Call history + outbound
-    │   ├── system-prompts/page.tsx← System prompt CRUD
-    │   └── custom-functions/page.tsx ← Custom function CRUD
-    │
-    ├── components/                ← Reusable React components
-    │   ├── Sidebar.tsx            ← Navigation sidebar
-    │   ├── VoiceCallButton.tsx    ← Start/end browser call
-    │   └── TestCallSection.tsx    ← Test call wrapper
-    │
-    ├── lib/                       ← Utilities & hooks
-    │   ├── api.ts                 ← REST API client (fetch wrapper)
-    │   └── useVoiceSession.ts     ← WebSocket voice call hook
-    │
+└── frontend/
+    ├── package.json
+    ├── next.config.js
+    ├── tailwind.config.ts
+    ├── tsconfig.json
+    ├── app/
+    │   ├── layout.tsx                # Root layout (sidebar + dark theme)
+    │   ├── page.tsx                  # Landing/redirect page
+    │   ├── globals.css               # Global styles + Tailwind
+    │   ├── dashboard/page.tsx        # Dashboard with stats
+    │   ├── agents/page.tsx           # Agent list (grid view)
+    │   ├── agents/[id]/page.tsx      # Agent detail (config + test + chat)
+    │   ├── calls/page.tsx            # Call history + transcripts
+    │   ├── system-prompts/page.tsx   # System prompt CRUD
+    │   ├── custom-functions/page.tsx # Custom function CRUD
+    │   ├── knowledge-base/page.tsx   # Knowledge base + file upload
+    │   ├── phone-numbers/page.tsx    # Phone number management
+    │   ├── settings/page.tsx         # Platform settings
+    │   └── api/chat/route.ts         # Streaming chat API (SSE + tool calling)
+    ├── components/
+    │   ├── Sidebar.tsx               # Navigation sidebar
+    │   ├── TestCallSection.tsx       # Voice call testing wrapper
+    │   └── VoiceCallButton.tsx       # Start/end voice call + transcript
+    ├── lib/
+    │   ├── api.ts                    # Backend REST API client
+    │   └── useVoiceSession.ts        # LiveKit voice session React hook
     └── types/
-        └── index.ts               ← TypeScript interfaces
+        └── index.ts                  # TypeScript interfaces
 ```
 
 ---
 
-## Setup & Installation
+## Voice Pipeline Architecture
 
-### Prerequisites
+### LiveKit Agent Worker (`backend/livekit_agent.py`)
 
-- **Python 3.11+** (for backend)
-- **Node.js 18+** and **npm** (for frontend)
-- **Supabase account** (free tier works) — [supabase.com](https://supabase.com)
-- API keys for at least one LLM provider (OpenAI recommended to start)
-- Optional: Deepgram, ElevenLabs, Twilio accounts for voice features
+The voice pipeline runs as a standalone LiveKit agent worker process. When a browser user starts a call:
 
-### Step 1: Clone and Install Backend
+1. Frontend requests a LiveKit token from `POST /api/livekit/token`
+2. Backend creates a call record in Supabase, creates a LiveKit room with `agent_id` + `call_id` metadata
+3. Frontend connects to the LiveKit room via WebRTC
+4. LiveKit dispatches the agent worker to join the room
+5. Agent worker loads the agent config from Supabase and builds the pipeline
 
-```bash
-cd trainedlogicaivoice/backend
+### Pipeline Components
 
-# Create virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate   # macOS/Linux
-# venv\Scripts\activate    # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create .env from template
-cp .env.example .env
-# Edit .env and fill in your API keys (see Environment Variables section)
+```
+User Audio (WebRTC)
+       │
+       ▼
+Silero VAD (Voice Activity Detection)
+  min_silence_duration=0.15s
+  activation_threshold=0.4
+       │
+       ▼
+Deepgram STT (nova-3)
+  no_delay=True
+  endpointing_ms=100
+  interim_results=True
+       │
+       ▼ (transcribed text)
+LLM (multi-provider)
+  temperature=0.7
+  streaming=True
+  tools=enabled
+       │
+       ├──► Tool calls → execute_tool() → webhook/built-in
+       │        │
+       │        ▼ (tool results fed back to LLM)
+       │
+       ▼ (response text, streamed)
+Cartesia TTS (sonic-3)
+  voice=metadata.cartesia_voice_id
+       │
+       ▼ (audio)
+User Speaker (WebRTC)
 ```
 
-### Step 2: Install Frontend
+### Low-Latency Settings
 
-```bash
-cd trainedlogicaivoice/frontend
+| Setting | Value | Effect |
+|---------|-------|--------|
+| `min_endpointing_delay` | 0.3s | Start LLM after 300ms of silence |
+| `max_endpointing_delay` | 1.5s | Cap wait time at 1.5s |
+| `preemptive_generation` | True | Start generating before user fully finishes |
+| `allow_interruptions` | True | User can interrupt agent mid-speech |
+| `endpointing_ms` (Deepgram) | 100 | Detect end-of-speech in 100ms |
+| `no_delay` (Deepgram) | True | Disable internal buffering |
 
-npm install
-```
+### Welcome Message
 
-### Step 3: Set Up Supabase Database
+On session start, the agent speaks a welcome message:
+- Reads `metadata.welcome_message` from agent config
+- Reads `metadata.ai_speaks_first` (default: true)
+- Uses `session.say(welcome_msg)` for immediate TTS without LLM round-trip
 
-See [Database Setup](#database-setup-supabase) section below.
+### Tool Execution in Voice Calls
 
-### Step 4: Configure Environment Variables
+Built-in tools (`end_call`, `transfer_call`, `check_availability`, `book_appointment`) are registered as LiveKit `function_tool` decorators. Custom functions are batch-loaded from Supabase in a single query and registered dynamically.
 
-See [Environment Variables](#environment-variables) section below.
+When the LLM calls a tool:
+1. Tool execution runs via `execute_tool()` in `backend/app/voice/functions.py`
+2. Built-in tools return mock data (customize for production)
+3. Custom functions call the configured webhook URL with retry support
+4. Results are fed back to the LLM for the final response
 
 ---
 
-## Environment Variables
+## AI Chat Architecture
 
-### Backend (`backend/.env`)
+### Streaming Chat API (`frontend/app/api/chat/route.ts`)
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `SUPABASE_URL` | **Yes** | — | Your Supabase project URL (e.g., `https://abc123.supabase.co`) |
-| `SUPABASE_KEY` | **Yes** | — | Supabase service role key (from Project Settings → API) |
-| `OPENAI_API_KEY` | **Yes*** | — | OpenAI API key (required if using GPT models) |
-| `OPENAI_MODEL` | No | `gpt-4` | Default LLM model |
-| `DEEPGRAM_API_KEY` | For voice | — | Deepgram API key (required for speech-to-text) |
-| `ELEVENLABS_API_KEY` | For voice | — | ElevenLabs API key (required for text-to-speech) |
-| `ELEVENLABS_VOICE_ID` | No | `21m00Tcm4TlvDq8ikWAM` | Default ElevenLabs voice (Rachel) |
-| `ANTHROPIC_API_KEY` | No | — | For Claude models |
-| `DEEPSEEK_API_KEY` | No | — | For DeepSeek models |
-| `GOOGLE_API_KEY` | No | — | For Gemini models |
-| `GROQ_API_KEY` | No | — | For Llama/Mixtral via Groq |
-| `TWILIO_ACCOUNT_SID` | For phone | — | Twilio Account SID |
-| `TWILIO_AUTH_TOKEN` | For phone | — | Twilio Auth Token |
-| `TWILIO_PHONE_NUMBER` | For phone | — | Your Twilio phone number (e.g., `+15551234567`) |
-| `APP_URL` | No | `http://localhost:8000` | Backend public URL (for Twilio webhooks) |
+The chat feature runs entirely in the Next.js frontend API route (no backend involvement):
 
-*At least one LLM provider key is required.
+```
+Browser (React UI)
+       │
+       ▼ POST /api/chat (with messages, systemPrompt, model, tools)
+Next.js API Route
+       │
+       ├── getClient(model) → routes to correct LLM provider
+       │     ├── OpenAI (default)
+       │     ├── Anthropic (claude-*)
+       │     ├── DeepSeek (deepseek-*)
+       │     ├── Google (gemini-*)
+       │     └── Groq (llama-*, mixtral-*)
+       │
+       ▼ streaming response (SSE)
+       │
+       ├── data: {"content": "Hello..."} (text chunks)
+       ├── data: {"tool_call": {...}}     (tool invocation)
+       ├── data: {"tool_result": {...}}   (webhook response)
+       └── data: [DONE]
+```
 
-### Frontend (`frontend/.env.local`)
+### Tool Calling in Chat
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend REST API URL |
-| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8000` | Backend WebSocket URL |
+1. Frontend sends the agent's connected custom functions as `tools` in the request
+2. API route converts them to OpenAI function-calling format (with schema sanitization)
+3. When LLM returns `tool_calls`, the API route executes each webhook
+4. Results are sent back to the LLM for a natural language response
+5. Loop continues up to 5 rounds of tool calls
+
+### Provider Routing
+
+The `getClient(model)` function routes based on model name:
+
+| Pattern | Base URL |
+|---------|----------|
+| `deepseek` | `https://api.deepseek.com` |
+| `claude` / `anthropic` | `https://api.anthropic.com/v1/` |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `llama` / `mixtral` / `groq` | `https://api.groq.com/openai/v1` |
+| Default | `https://api.openai.com/v1` |
 
 ---
 
-## Database Setup (Supabase)
+## Agent Configuration
 
-### 1. Create a Supabase Project
+### Agent Fields
 
-1. Go to [supabase.com](https://supabase.com) and create a new project
-2. Note your **Project URL** and **Service Role Key** (from Settings → API)
-3. Add these to `backend/.env` as `SUPABASE_URL` and `SUPABASE_KEY`
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Agent display name |
+| `description` | string | Brief description |
+| `system_prompt` | string | Instructions for the LLM |
+| `voice_id` | string | ElevenLabs voice ID (legacy, optional) |
+| `language` | string | Language code (e.g. `en-US`) |
+| `llm_model` | string | LLM model name (e.g. `gpt-4`, `claude-3-opus-20240229`) |
+| `tools_enabled` | string[] | Array of tool names to enable |
+| `is_active` | boolean | Whether the agent is active |
+| `knowledge_base_id` | string | Connected knowledge base UUID |
+| `metadata` | object | Additional configuration (see below) |
 
-### 2. Run the Migration SQL
+### Agent Metadata
 
-Go to **Supabase Dashboard → SQL Editor** and run the following SQL:
+| Key | Type | Description |
+|-----|------|-------------|
+| `welcome_message` | string | Message spoken when call starts |
+| `ai_speaks_first` | boolean | Whether agent speaks first (default: true) |
+| `pause_before_speaking` | number | Seconds to wait before speaking |
+| `dynamic_message` | boolean | Whether to use dynamic welcome messages |
+| `cartesia_voice_id` | string | Cartesia voice UUID for TTS in voice calls |
+| `folder` | string | Organization folder |
+| `agent_type` | string | "Single Prompt" or "Multi Prompt" |
 
-```sql
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+### Voice ID Configuration
 
--- Agents table
-CREATE TABLE IF NOT EXISTS agents (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    description TEXT,
-    system_prompt TEXT DEFAULT 'You are a helpful voice AI assistant.',
-    voice_id TEXT DEFAULT '21m00Tcm4TlvDq8ikWAM',
-    language TEXT DEFAULT 'en-US',
-    llm_model TEXT DEFAULT 'gpt-4',
-    tools_enabled JSONB DEFAULT '[]'::jsonb,
-    is_active BOOLEAN DEFAULT true,
-    metadata JSONB,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
+The platform uses **two separate TTS providers**:
 
--- Calls table
-CREATE TABLE IF NOT EXISTS calls (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
-    direction TEXT DEFAULT 'inbound',
-    caller_number TEXT,
-    twilio_call_sid TEXT UNIQUE,
-    status TEXT DEFAULT 'queued',
-    end_reason TEXT,
-    duration_seconds INT,
-    summary TEXT,
-    started_at TIMESTAMPTZ DEFAULT now(),
-    ended_at TIMESTAMPTZ,
-    metadata JSONB
-);
+| Provider | Used By | Voice ID Field |
+|----------|---------|---------------|
+| **Cartesia** | LiveKit voice calls | `metadata.cartesia_voice_id` |
+| **ElevenLabs** | Legacy/alternative | `voice_id` (top-level field) |
 
--- Transcript entries
-CREATE TABLE IF NOT EXISTS transcript_entries (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    call_id UUID REFERENCES calls(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    timestamp TIMESTAMPTZ DEFAULT now()
-);
-
--- Function call logs
-CREATE TABLE IF NOT EXISTS function_call_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    call_id UUID REFERENCES calls(id) ON DELETE CASCADE,
-    function_name TEXT NOT NULL,
-    arguments JSONB,
-    result JSONB,
-    status TEXT DEFAULT 'pending',
-    error_message TEXT,
-    executed_at TIMESTAMPTZ DEFAULT now()
-);
-
--- System prompts
-CREATE TABLE IF NOT EXISTS system_prompts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    description TEXT,
-    content TEXT NOT NULL,
-    variables JSONB,
-    category TEXT,
-    is_default BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Custom functions
-CREATE TABLE IF NOT EXISTS custom_functions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL UNIQUE,
-    description TEXT,
-    parameters JSONB DEFAULT '{}'::jsonb,
-    webhook_url TEXT,
-    method TEXT DEFAULT 'POST',
-    headers JSONB,
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_calls_agent_id ON calls(agent_id);
-CREATE INDEX IF NOT EXISTS idx_calls_status ON calls(status);
-CREATE INDEX IF NOT EXISTS idx_transcript_entries_call_id ON transcript_entries(call_id);
-CREATE INDEX IF NOT EXISTS idx_function_call_logs_call_id ON function_call_logs(call_id);
-```
-
-### 3. Database Schema Summary
-
-| Table | Purpose | Key Fields |
-|-------|---------|------------|
-| `agents` | Voice agent configs | name, system_prompt, voice_id, llm_model, tools_enabled |
-| `calls` | Call records | agent_id, direction, status, duration_seconds, twilio_call_sid |
-| `transcript_entries` | Conversation logs | call_id, role (user/assistant), content |
-| `function_call_logs` | Tool execution audit | call_id, function_name, arguments, result, status |
-| `system_prompts` | Reusable prompts | name, content, category, is_default |
-| `custom_functions` | Webhook-backed tools | name, webhook_url, method, parameters |
-
-### Table Relationships
-
-```
-agents ──(1:many)──> calls
-calls  ──(1:many)──> transcript_entries
-calls  ──(1:many)──> function_call_logs
-```
+To set a consistent voice for calls, set the Cartesia voice ID in the agent's metadata. Browse voices at [play.cartesia.ai](https://play.cartesia.ai).
 
 ---
 
-## Running the Project
+## Custom Functions & Integrations
 
-### Start Backend
+### Custom Function Fields
 
-```bash
-cd backend
-source venv/bin/activate    # if using virtualenv
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Unique function name (used as tool name in LLM) |
+| `description` | string | What the function does (sent to LLM) |
+| `parameters` | JSON Schema | Schema for function arguments |
+| `webhook_url` | string | URL called when function is invoked |
+| `method` | string | HTTP method (GET/POST/PUT/PATCH) |
+| `headers` | object | Custom HTTP headers (key-value) |
+| `query_params` | object | Query parameters appended to URL |
+| `timeout_seconds` | number | Request timeout (default: 30) |
+| `retry_count` | number | Retries on failure (default: 0) |
+| `payload_mode` | string | `args_only` (default) or `full_context` |
+| `response_mapping` | object | Extract fields using dot-notation (e.g. `$.data.status`) |
+| `store_variables` | object | Store response fields for later use |
+| `speak_during_execution` | string | Filler text spoken while webhook runs |
+| `speak_on_failure` | string | Text spoken if webhook fails |
+
+### Integration Templates
+
+The agent detail page provides quick-create templates for popular platforms:
+
+| Template | URL Pattern | Description |
+|----------|-------------|-------------|
+| **n8n** | `https://your-n8n.com/webhook/...` | n8n workflow webhook |
+| **Zapier** | `https://hooks.zapier.com/hooks/catch/...` | Zapier catch hook |
+| **Make** | `https://hook.us1.make.com/...` | Make (Integromat) webhook |
+| **Custom** | Any URL | Generic webhook |
+
+Templates pre-fill the function name, description, placeholder URL, and method. After creating, the function is automatically enabled on the agent.
+
+### Platform Detection
+
+Connected functions display a platform badge based on URL pattern matching:
+- URL contains `n8n` → n8n badge
+- URL contains `hooks.zapier.com` → Zapier badge
+- URL contains `make.com` or `integromat` → Make badge
+- Otherwise → Custom badge
+
+### Response Mapping
+
+Extract specific fields from webhook responses using JSON dot-notation paths:
+
+```json
+{
+  "status": "$.data.status",
+  "message": "$.result.message",
+  "price": "$.items.0.price"
+}
 ```
 
-- API available at: `http://localhost:8000`
-- Swagger docs at: `http://localhost:8000/docs`
-- ReDoc at: `http://localhost:8000/redoc`
+### Built-in Tools
 
-### Start Frontend
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `end_call` | End the current call | `reason` (string) |
+| `transfer_call` | Transfer to another number | `to_number`, `department` |
+| `check_availability` | Check appointment slots | `date` (required), `time` |
+| `book_appointment` | Book an appointment | `name`, `date`, `time` (required), `notes` |
 
-```bash
-cd frontend
-npm run dev
-```
+---
 
-- UI available at: `http://localhost:3000`
-- Redirects to `/dashboard` automatically
+## Knowledge Base (RAG)
 
-### Verify Everything Works
+### Pipeline
 
-1. Open `http://localhost:8000/docs` — you should see the Swagger UI with all endpoints
-2. Open `http://localhost:8000/health` — should return `{"status": "healthy"}`
-3. Open `http://localhost:3000` — should show the dashboard
-4. Try creating an agent via the Agents page
+Upload → Parse (PDF/TXT/DOCX/CSV) → Chunk (500 tokens, 50 overlap) → Embed (OpenAI `text-embedding-3-small`) → Upsert (Pinecone)
+
+### How RAG Works in Voice Calls
+
+1. Agent loads knowledge base info on session start
+2. User speaks → STT transcribes
+3. (RAG context is made available to the LLM)
+4. LLM responds with knowledge-base-informed answer
+5. Response is spoken via TTS
+
+### Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `PINECONE_API_KEY` | — | Pinecone API key |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `CHUNK_SIZE` | 500 | Tokens per chunk |
+| `CHUNK_OVERLAP` | 50 | Overlap between chunks |
+| `RAG_TOP_K` | 5 | Number of chunks retrieved |
+
+---
+
+## LLM Provider Configuration
+
+### Voice Calls (LiveKit Agent)
+
+| Model prefix | Provider | Plugin |
+|-------------|----------|--------|
+| `gpt-*` | OpenAI | `livekit.plugins.openai` |
+| `claude-*` | Anthropic | `livekit.plugins.anthropic` |
+| `deepseek-*` | DeepSeek | `livekit.plugins.openai` (custom base URL) |
+| `llama-*`, `mixtral-*` | Groq | `livekit.plugins.openai` (custom base URL) |
+
+### Chat (Next.js API)
+
+| Model prefix | Provider | Base URL |
+|-------------|----------|----------|
+| `gpt-*` | OpenAI | Default |
+| `claude-*` / `anthropic` | Anthropic | `https://api.anthropic.com/v1/` |
+| `deepseek-*` | DeepSeek | `https://api.deepseek.com` |
+| `gemini-*` | Google | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `llama-*` / `mixtral-*` / `groq` | Groq | `https://api.groq.com/openai/v1` |
 
 ---
 
@@ -379,687 +417,261 @@ npm run dev
 
 Base URL: `http://localhost:8000`
 
-### Health & Root
+### Core
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/` | Service info | `{"status": "ok", "service": "Voice AI Platform"}` |
-| `GET` | `/health` | Health check | `{"status": "healthy"}` |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | Service status |
+| GET | `/health` | Health check |
+| GET | `/api/diagnostics` | Check all integration statuses |
+| POST | `/api/migrate` | Get database migration SQL |
 
----
+### LiveKit
 
-### Agents — `/api/agents`
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/livekit/token` | Generate token for browser voice call |
+| GET | `/api/livekit/rooms` | List active LiveKit rooms |
 
-| Method | Path | Description | Request Body | Response |
-|--------|------|-------------|-------------|----------|
-| `GET` | `/api/agents` | List all agents | — | `Agent[]` |
-| `GET` | `/api/agents/{id}` | Get single agent | — | `Agent` |
-| `POST` | `/api/agents` | Create agent | `AgentCreate` | `Agent` |
-| `PUT` | `/api/agents/{id}` | Update agent | `AgentUpdate` | `Agent` |
-| `DELETE` | `/api/agents/{id}` | Delete agent | — | `{"deleted": true}` |
+**Token request:**
+```json
+{ "agent_id": "uuid", "participant_name": "user" }
+```
 
-**AgentCreate body:**
+**Token response:**
+```json
+{ "token": "jwt...", "room_name": "agent-uuid-hex", "livekit_url": "ws://...", "call_id": "uuid" }
+```
+
+### Agents
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/agents` | List all agents |
+| POST | `/api/agents` | Create agent |
+| GET | `/api/agents/:id` | Get agent |
+| PUT | `/api/agents/:id` | Update agent |
+| DELETE | `/api/agents/:id` | Delete agent |
+
+### Calls
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/calls` | List calls |
+| GET | `/api/calls/:id` | Get call details |
+| GET | `/api/calls/:id/transcript` | Get call transcript |
+| POST | `/api/calls/outbound` | Make outbound call (SIP) |
+| DELETE | `/api/calls/:id` | Delete call |
+
+### System Prompts
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/system-prompts` | List prompts |
+| POST | `/api/system-prompts` | Create prompt |
+| PUT | `/api/system-prompts/:id` | Update prompt |
+| DELETE | `/api/system-prompts/:id` | Delete prompt |
+
+### Custom Functions
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/custom-functions` | List functions |
+| POST | `/api/custom-functions` | Create function |
+| GET | `/api/custom-functions/:id` | Get function |
+| PUT | `/api/custom-functions/:id` | Update function |
+| DELETE | `/api/custom-functions/:id` | Delete function |
+| POST | `/api/custom-functions/:id/test` | Test webhook |
+
+### Knowledge Bases
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/knowledge-bases` | List knowledge bases |
+| POST | `/api/knowledge-bases` | Create knowledge base |
+| GET | `/api/knowledge-bases/:id` | Get knowledge base |
+| PUT | `/api/knowledge-bases/:id` | Update knowledge base |
+| DELETE | `/api/knowledge-bases/:id` | Delete knowledge base |
+| GET | `/api/knowledge-bases/:id/files` | List files |
+| POST | `/api/knowledge-bases/:id/files` | Upload file (multipart) |
+| DELETE | `/api/knowledge-bases/:id/files/:file_id` | Delete file |
+
+### Phone Numbers
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/phone-numbers` | List phone numbers |
+| POST | `/api/phone-numbers/sync` | Sync from Twilio |
+| PUT | `/api/phone-numbers/:id` | Update phone number |
+| POST | `/api/phone-numbers/:id/configure` | Configure for voice |
+
+### Frontend Chat API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/chat` (Next.js) | Streaming chat with tool calling (SSE) |
+
+**Chat request:**
 ```json
 {
-  "name": "My Agent",                              // required
-  "description": "A helpful assistant",             // optional
-  "system_prompt": "You are a helpful assistant.",   // default provided
-  "voice_id": "21m00Tcm4TlvDq8ikWAM",              // ElevenLabs voice ID
-  "language": "en-US",
-  "llm_model": "gpt-4",                             // see LLM providers
-  "tools_enabled": ["end_call", "book_appointment"], // array of tool names
-  "is_active": true,
-  "metadata": {}                                     // any JSON
+  "messages": [{"role": "user", "content": "Hello"}],
+  "systemPrompt": "You are a helpful assistant.",
+  "model": "gpt-4",
+  "tools": [{ "id": "...", "name": "...", "description": "...", "parameters": {...}, "webhook_url": "...", "method": "POST", "headers": {...}, "timeout_seconds": 30, "payload_mode": "args_only" }]
 }
 ```
 
-**AgentUpdate body:** Same fields as create, all optional. Only provided fields are updated.
-
-**Agent response:**
-```json
-{
-  "id": "uuid",
-  "name": "My Agent",
-  "description": "...",
-  "system_prompt": "...",
-  "voice_id": "21m00Tcm4TlvDq8ikWAM",
-  "language": "en-US",
-  "llm_model": "gpt-4",
-  "tools_enabled": ["end_call"],
-  "is_active": true,
-  "metadata": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
+**SSE response events:**
 ```
-
-**cURL examples:**
-```bash
-# List all agents
-curl http://localhost:8000/api/agents
-
-# Create an agent
-curl -X POST http://localhost:8000/api/agents \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Sales Agent", "system_prompt": "You are a sales assistant.", "llm_model": "gpt-4"}'
-
-# Update an agent
-curl -X PUT http://localhost:8000/api/agents/{id} \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Updated Agent Name"}'
-
-# Delete an agent
-curl -X DELETE http://localhost:8000/api/agents/{id}
-```
-
----
-
-### Calls — `/api/calls`
-
-| Method | Path | Description | Request Body | Response |
-|--------|------|-------------|-------------|----------|
-| `GET` | `/api/calls` | List calls (last 100) | — | `Call[]` (with agent name) |
-| `GET` | `/api/calls/{id}` | Get single call | — | `Call` (with agent name) |
-| `GET` | `/api/calls/{id}/transcript` | Get call transcript | — | `TranscriptEntry[]` |
-| `POST` | `/api/calls/outbound` | Make outbound call | `OutboundCallRequest` | `OutboundCallResult` |
-| `DELETE` | `/api/calls/{id}` | Delete call record | — | `{"deleted": true}` |
-
-**OutboundCallRequest:**
-```json
-{
-  "agent_id": "uuid-of-agent",
-  "to_number": "+15551234567"
-}
-```
-
-**Call response:**
-```json
-{
-  "id": "uuid",
-  "agent_id": "uuid",
-  "direction": "inbound",        // "inbound", "outbound", "browser"
-  "caller_number": "+15551234567",
-  "twilio_call_sid": "CA...",
-  "status": "completed",         // "queued", "ringing", "in-progress", "completed", "failed"
-  "end_reason": "completed",
-  "duration_seconds": 45,
-  "summary": null,
-  "started_at": "2024-01-01T00:00:00Z",
-  "ended_at": "2024-01-01T00:00:45Z",
-  "metadata": null,
-  "agents": { "name": "My Agent" }  // joined from agents table
-}
-```
-
-**TranscriptEntry response:**
-```json
-[
-  {
-    "id": "uuid",
-    "call_id": "uuid",
-    "role": "user",
-    "content": "Hello, I'd like to book an appointment.",
-    "timestamp": "2024-01-01T00:00:05Z"
-  },
-  {
-    "id": "uuid",
-    "call_id": "uuid",
-    "role": "assistant",
-    "content": "Of course! What date works for you?",
-    "timestamp": "2024-01-01T00:00:08Z"
-  }
-]
-```
-
-**cURL examples:**
-```bash
-# List all calls
-curl http://localhost:8000/api/calls
-
-# Get transcript for a call
-curl http://localhost:8000/api/calls/{call_id}/transcript
-
-# Make outbound call (requires Twilio)
-curl -X POST http://localhost:8000/api/calls/outbound \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "uuid", "to_number": "+15551234567"}'
-```
-
----
-
-### System Prompts — `/api/system-prompts`
-
-| Method | Path | Description | Request Body | Response |
-|--------|------|-------------|-------------|----------|
-| `GET` | `/api/system-prompts` | List all prompts | — | `SystemPrompt[]` |
-| `GET` | `/api/system-prompts/{id}` | Get single prompt | — | `SystemPrompt` |
-| `POST` | `/api/system-prompts` | Create prompt | `SystemPromptCreate` | `SystemPrompt` |
-| `PUT` | `/api/system-prompts/{id}` | Update prompt | `SystemPromptUpdate` | `SystemPrompt` |
-| `DELETE` | `/api/system-prompts/{id}` | Delete prompt | — | `{"deleted": true}` |
-
-**SystemPromptCreate body:**
-```json
-{
-  "name": "Customer Service",         // required
-  "content": "You are a helpful...",   // required
-  "description": "For support calls",  // optional
-  "category": "support",              // optional
-  "variables": {"company": "Acme"},   // optional (template vars)
-  "is_default": false                  // optional
-}
-```
-
-**cURL examples:**
-```bash
-# List all system prompts
-curl http://localhost:8000/api/system-prompts
-
-# Create a system prompt
-curl -X POST http://localhost:8000/api/system-prompts \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Sales Bot", "content": "You are a sales agent for Acme Corp."}'
-```
-
----
-
-### Custom Functions — `/api/custom-functions`
-
-| Method | Path | Description | Request Body | Response |
-|--------|------|-------------|-------------|----------|
-| `GET` | `/api/custom-functions` | List all functions | — | `CustomFunction[]` |
-| `GET` | `/api/custom-functions/{id}` | Get single function | — | `CustomFunction` |
-| `POST` | `/api/custom-functions` | Create function | `FunctionCreate` | `CustomFunction` |
-| `PUT` | `/api/custom-functions/{id}` | Update function | `FunctionUpdate` | `CustomFunction` |
-| `DELETE` | `/api/custom-functions/{id}` | Delete function | — | `{"deleted": true}` |
-
-**FunctionCreate body:**
-```json
-{
-  "name": "get_weather",                     // required, must be unique
-  "description": "Get current weather",       // optional
-  "parameters": {                             // JSON Schema for LLM
-    "type": "object",
-    "properties": {
-      "city": { "type": "string", "description": "City name" }
-    },
-    "required": ["city"]
-  },
-  "webhook_url": "https://api.example.com/weather",  // called when tool is invoked
-  "method": "POST",                           // HTTP method (GET, POST, PUT, PATCH)
-  "headers": { "Authorization": "Bearer ..." }, // optional custom headers
-  "is_active": true
-}
-```
-
-**cURL examples:**
-```bash
-# List all custom functions
-curl http://localhost:8000/api/custom-functions
-
-# Create a custom function
-curl -X POST http://localhost:8000/api/custom-functions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "lookup_order",
-    "description": "Look up an order by ID",
-    "parameters": {"type": "object", "properties": {"order_id": {"type": "string"}}, "required": ["order_id"]},
-    "webhook_url": "https://api.myapp.com/orders/lookup",
-    "method": "POST"
-  }'
-```
-
----
-
-### Twilio Webhooks — `/api/twilio`
-
-These are called by Twilio, not by the frontend.
-
-| Method | Path | Description | Called By |
-|--------|------|-------------|-----------|
-| `POST` | `/api/twilio/incoming` | Handle inbound call | Twilio (Voice URL webhook) |
-| `POST` | `/api/twilio/outbound-connect` | Handle outbound call connection | Twilio (after outbound call answers) |
-| `POST` | `/api/twilio/status` | Handle call status updates | Twilio (Status Callback URL) |
-
-**`/api/twilio/incoming`** — Returns TwiML that connects the call to `/ws/voice-twilio` media stream. Creates a call record in the database. Assigns the first active agent.
-
-**`/api/twilio/outbound-connect`** — Same as incoming but for outbound calls initiated via `/api/calls/outbound`.
-
-**`/api/twilio/status`** — Updates call status in the database when Twilio reports status changes (ringing, answered, completed, failed, etc.). Also records duration.
-
----
-
-## WebSocket Endpoints
-
-### Browser Voice — `/ws/voice-browser`
-
-**URL:** `ws://localhost:8000/ws/voice-browser?agent_id={uuid}`
-
-**Purpose:** Real-time browser voice calls with PCM16 audio.
-
-**Protocol:**
-
-| Direction | Format | Description |
-|-----------|--------|-------------|
-| Client → Server | Binary (PCM16 bytes) | Raw microphone audio at 16kHz mono |
-| Client → Server | JSON `{"type": "audio", "data": "base64..."}` | Alternative base64 audio format |
-| Client → Server | JSON `{"type": "end"}` | End the call |
-| Server → Client | Binary (PCM16 bytes) | TTS audio response at 16kHz mono |
-| Server → Client | JSON (see below) | Session events & transcripts |
-
-**Server JSON messages:**
-```json
-// Session started
-{"type": "session_started", "agent": "Agent Name"}
-
-// User transcript (interim)
-{"type": "transcript", "role": "user", "content": "Hello", "is_final": false}
-
-// User transcript (final)
-{"type": "transcript", "role": "user", "content": "Hello there", "is_final": true}
-
-// Assistant transcript
-{"type": "transcript", "role": "assistant", "content": "Hi! How can I help?", "is_final": true}
-
-// Tool call executed
-{"type": "tool_call", "name": "book_appointment", "arguments": {...}, "result": {...}}
-
-// Session ended
-{"type": "session_ended", "reason": "browser_disconnect", "duration": 45}
-```
-
-### Twilio Voice — `/ws/voice-twilio`
-
-**URL:** `ws://localhost:8000/ws/voice-twilio`
-
-**Purpose:** Twilio media stream for phone calls. Twilio connects here automatically via TwiML `<Stream>`.
-
-**Protocol:** Twilio's standard media stream protocol:
-- Receives: `{"event": "start"}`, `{"event": "media", "media": {"payload": "base64_mulaw"}}`, `{"event": "stop"}`
-- Sends: `{"event": "media", "streamSid": "...", "media": {"payload": "base64_mulaw"}}`
-- Audio format: mulaw 8kHz (converted internally to PCM16 16kHz)
-
----
-
-## Important Files Guide
-
-### Backend Core Files
-
-#### `backend/config.py` — Configuration
-- Loads all environment variables using Pydantic Settings
-- Reads from `.env` file automatically
-- All settings have defaults (empty strings) so the app starts even without full config
-- **When to edit:** Adding new environment variables or changing defaults
-
-#### `backend/database.py` — Database Client
-- Creates a singleton Supabase client
-- Contains the full SQL migration in `MIGRATION_SQL` constant
-- **When to edit:** Changing database schema, adding new tables
-
-#### `backend/main.py` — Application Entry Point
-- Creates the FastAPI app instance
-- Configures CORS (currently allows all origins — restrict in production!)
-- Mounts all REST routers with their URL prefixes
-- Mounts WebSocket routers
-- **When to edit:** Adding new routers, changing CORS settings, adding middleware
-
-### Backend Services
-
-#### `backend/services/llm.py` — LLM Service (CRITICAL)
-- Routes to the correct LLM provider based on model name
-- Streams responses with text deltas and tool calls
-- Supports: OpenAI, Anthropic, DeepSeek (via OpenAI-compatible), Groq (via OpenAI-compatible), Google Gemini
-- **When to edit:** Adding new LLM providers, changing streaming behavior
-
-#### `backend/services/deepgram_stt.py` — Speech-to-Text
-- WebSocket client that connects to Deepgram's `nova-2` model
-- Streams audio and receives transcripts (interim + final)
-- Configured for 16kHz PCM16 mono input
-- **When to edit:** Changing STT model, language, or audio format
-
-#### `backend/services/elevenlabs_tts.py` — Text-to-Speech
-- HTTP streaming client for ElevenLabs API
-- Uses `eleven_turbo_v2` model for low latency
-- Outputs PCM16 at 16kHz
-- **When to edit:** Changing voice settings, TTS model, or output format
-
-#### `backend/services/twilio_service.py` — Twilio Calls
-- Creates outbound calls via Twilio REST API
-- Sets up webhook URLs for call connection and status updates
-- **When to edit:** Changing call routing, adding call recording
-
-### Backend Voice Pipeline
-
-#### `backend/voice/session.py` — Voice Session (CRITICAL)
-- The core pipeline: audio → STT → LLM → TTS → audio
-- Manages conversation history (messages array)
-- Handles user interruption (barge-in)
-- Saves transcripts to database
-- Executes tool calls from LLM
-- **When to edit:** Changing conversation flow, adding features like call recording, changing interrupt behavior
-
-#### `backend/voice/audio_codec.py` — Audio Conversion
-- Pure Python mulaw ↔ PCM16 conversion (no external dependencies)
-- Includes linear interpolation resampling (8kHz ↔ 16kHz)
-- **When to edit:** Only if changing audio formats or sample rates
-
-#### `backend/voice/tools.py` — Built-in Tools
-- Defines 4 built-in tools: `end_call`, `transfer_call`, `check_availability`, `book_appointment`
-- Each tool has a JSON Schema for LLM function calling
-- **When to edit:** Adding/removing built-in tools
-
-#### `backend/voice/functions.py` — Tool Execution
-- Executes built-in tools and custom webhook functions
-- Logs all tool calls to `function_call_logs` table
-- Built-in tools return mock data (customize for production)
-- Custom functions call the configured webhook URL
-- **When to edit:** Implementing real tool logic (e.g., actual booking system integration)
-
-### Frontend Core Files
-
-#### `frontend/lib/api.ts` — API Client
-- Centralized fetch wrapper for all backend API calls
-- Handles JSON serialization and error responses
-- **When to edit:** Adding new API methods, changing error handling
-
-#### `frontend/lib/useVoiceSession.ts` — Voice Hook (CRITICAL)
-- React hook for browser WebSocket voice calls
-- Manages microphone access, audio streaming, and playback
-- Converts browser audio (Float32) to PCM16 for backend
-- Converts received PCM16 to playable audio
-- **When to edit:** Changing audio quality, adding audio processing, improving playback buffering
-
-#### `frontend/components/Sidebar.tsx` — Navigation
-- Fixed sidebar with navigation links
-- Active route highlighting
-- **When to edit:** Adding/removing navigation items
-
-#### `frontend/types/index.ts` — TypeScript Types
-- Shared interfaces matching the database schema
-- **When to edit:** When database schema changes
-
----
-
-## Voice Pipeline Architecture
-
-### Call Flow (Browser)
-
-```
-Browser Microphone
-       │
-       ▼ (Float32 → PCM16 conversion in JS)
-   WebSocket /ws/voice-browser
-       │
-       ▼ (raw PCM16 bytes)
-   BrowserVoiceSession
-       │
-       ▼
-   VoiceSession.handle_audio()
-       │
-       ▼ (PCM16 16kHz mono)
-   DeepgramSTT.send_audio()  ──────► Deepgram WebSocket API
-       │                                     │
-       │                          transcript (text)
-       │                                     │
-       ▼                              ◄──────┘
-   VoiceSession._on_transcript()
-       │ (when is_final=true)
-       ▼
-   VoiceSession._process_user_message()
-       │
-       ├──► Save transcript to DB
-       │
-       ▼
-   stream_llm_response()  ──────► OpenAI/Anthropic/etc.
-       │                                │
-       │                    text_delta / tool_call
-       │                                │
-       ▼                         ◄──────┘
-   (if tool_call) → execute_tool() → webhook/built-in
-       │
-       ▼ (full text response)
-   synthesize_speech()  ──────► ElevenLabs API
-       │                              │
-       │                    PCM16 audio chunks
-       │                              │
-       ▼                       ◄──────┘
-   VoiceSession._speak()
-       │
-       ▼ (PCM16 bytes)
-   BrowserVoiceSession._send_audio()
-       │
-       ▼ (WebSocket binary frame)
-   Browser AudioContext ──► Speaker
-```
-
-### Call Flow (Twilio Phone)
-
-```
-Phone (PSTN)  ──► Twilio ──► POST /api/twilio/incoming
-                                     │
-                              TwiML <Stream> response
-                                     │
-                              Twilio Media Stream
-                                     │
-                                     ▼
-                          WebSocket /ws/voice-twilio
-                                     │
-                          ┌──────────┴──────────┐
-                          │ mulaw 8kHz base64    │
-                          │          │           │
-                          │    mulaw_to_pcm16()  │
-                          │    resample 8k→16k   │
-                          │          │           │
-                          │    PCM16 16kHz       │
-                          │          │           │
-                          │   VoiceSession       │
-                          │   (same as browser)  │
-                          │          │           │
-                          │    PCM16 16kHz       │
-                          │          │           │
-                          │   resample 16k→8k    │
-                          │   pcm16_to_mulaw()   │
-                          │          │           │
-                          │   mulaw 8kHz base64  │
-                          └──────────┬──────────┘
-                                     │
-                          Twilio Media Stream
-                                     │
-                              Twilio ──► Phone (PSTN)
-```
-
----
-
-## LLM Provider Configuration
-
-The LLM provider is auto-detected from the model name. Set the model on each agent's `llm_model` field.
-
-| Model Name Pattern | Provider | Required Env Var | Examples |
-|-------------------|----------|-----------------|----------|
-| `gpt-*` | OpenAI | `OPENAI_API_KEY` | `gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo` |
-| `claude-*` | Anthropic | `ANTHROPIC_API_KEY` | `claude-3-opus-20240229`, `claude-3-sonnet-20240229` |
-| `deepseek-*` | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-chat` |
-| `gemini-*` | Google | `GOOGLE_API_KEY` | `gemini-pro` |
-| `llama-*`, `mixtral-*` | Groq | `GROQ_API_KEY` | `llama-3.1-70b-versatile`, `mixtral-8x7b-32768` |
-
-All providers support streaming. OpenAI, Anthropic, and Groq support tool calling. Google Gemini currently does not support tool calling in this implementation.
-
----
-
-## Twilio Integration
-
-### Setup
-
-1. Create a Twilio account at [twilio.com](https://www.twilio.com)
-2. Buy a phone number with Voice capability
-3. Add credentials to `backend/.env`:
-   ```
-   TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-   TWILIO_AUTH_TOKEN=your_auth_token
-   TWILIO_PHONE_NUMBER=+15551234567
-   ```
-
-### Inbound Calls
-
-1. In Twilio Console → Phone Numbers → your number → Voice Configuration:
-   - **When a call comes in:** Webhook
-   - **URL:** `https://your-domain.com/api/twilio/incoming` (must be publicly accessible)
-   - **HTTP Method:** POST
-2. For local development, use [ngrok](https://ngrok.com):
-   ```bash
-   ngrok http 8000
-   # Use the ngrok URL in Twilio and set APP_URL in .env
-   ```
-
-### Outbound Calls
-
-Make outbound calls from the Calls page in the UI, or via API:
-```bash
-curl -X POST http://localhost:8000/api/calls/outbound \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "your-agent-uuid", "to_number": "+15559876543"}'
+data: {"content": "Hello! "}
+data: {"content": "How can "}
+data: {"tool_call": {"name": "check_weather", "arguments": {"city": "NYC"}}}
+data: {"tool_result": {"name": "check_weather", "result": "{\"temp\": 72}"}}
+data: {"content": "The weather in NYC is 72°F."}
+data: [DONE]
 ```
 
 ---
 
 ## Frontend Pages & Components
 
-### Dashboard (`/dashboard`)
-- Shows 4 stat cards: Agents, Total Calls, System Prompts, Functions
-- Shows recent calls list (last 5)
-- All data fetched from backend API on page load
+### Agent Detail Page (`/agents/[id]`)
 
-### Agents (`/agents`)
-- Grid of agent cards showing name, model, status, tools
-- **Create Agent** button opens modal with all configuration fields
-- **Test Call** button on each card opens a browser voice call
-- **Edit/Delete** actions on each card
+The main configuration page with collapsible sections:
+
+1. **Model & Voice** — LLM model, language, Cartesia voice ID, ElevenLabs voice ID
+2. **Prompt** — System prompt, welcome message, AI speaks first toggle, pause slider
+3. **Functions** — Built-in tools, integration templates, connected functions (with Test/Edit/Remove), available functions
+4. **Knowledge Base** — Select connected knowledge base
+5. **Advanced** — Agent type, folder, active toggle
+
+Right panel has two tabs:
+- **Audio** — Test voice call with VoiceCallButton + call history
+- **Chat** — Streaming AI chat with tool calling display
+
+### Dashboard (`/dashboard`)
+Stats cards (agents, calls, prompts, functions) + recent calls list.
+
+### Agents List (`/agents`)
+Grid of agent cards. Edit button navigates to `/agents/[id]` detail page.
 
 ### Calls (`/calls`)
-- Table view of all calls with direction icons, status badges, duration
-- **Outbound Call** button to initiate phone calls
-- **View Transcript** button opens chat-style transcript modal
-- **Delete** to remove call records
-
-### System Prompts (`/system-prompts`)
-- Grid of prompt cards with content preview
-- Create/edit modal with name, description, content, category
-- Star icon for default prompts
+Table view with direction, status, duration, agent name. Transcript viewer.
 
 ### Custom Functions (`/custom-functions`)
-- Grid of function cards showing name, method, webhook status
-- Create/edit modal with JSON Schema editor for parameters
-- Active/inactive toggle
+Grid view with create/edit modal, JSON Schema editor, webhook test button.
+
+---
+
+## Important Files Guide
+
+### `backend/livekit_agent.py` — Voice Agent (Critical)
+
+The LiveKit agent worker. Key functions:
+- `_build_stt()` — Deepgram STT with low-latency settings
+- `_build_llm()` — Multi-provider LLM with temperature config
+- `_build_tts()` — Cartesia TTS with voice from agent metadata
+- `_load_custom_functions()` — Batch-loads custom function defs in single DB query
+- `_build_agent()` — Creates Agent class with registered tools
+- `entrypoint()` — Main session lifecycle: connect → build pipeline → start session → welcome message → monitor disconnect
+
+### `frontend/app/api/chat/route.ts` — Chat API (Critical)
+
+Streaming chat with multi-provider routing and tool calling:
+- `getClient(model)` — Routes to correct LLM provider
+- `executeWebhook(tool, args)` — Calls webhook URLs for tool execution
+- `POST handler` — SSE streaming with up to 5 rounds of tool calls
+
+### `frontend/app/agents/[id]/page.tsx` — Agent Detail Page
+
+The largest frontend file. Contains:
+- All agent form state and save logic
+- Integration templates (INTEGRATION_TEMPLATES constant)
+- QuickCreateModal for inline function creation/editing
+- KeyValueEditor for headers/params
+- Chat UI with streaming and tool call display
+- Voice call section with LiveKit integration
+- Connected functions management (test/edit/remove)
+
+### `frontend/lib/useVoiceSession.ts` — LiveKit Voice Hook
+
+React hook for browser voice calls via LiveKit:
+- Connects to LiveKit room with token
+- Manages microphone and audio playback
+- Handles transcript data channel messages
+
+### `backend/app/voice/functions.py` — Webhook Executor
+
+Executes tool calls with full webhook support:
+- HTTP requests with custom headers, query params, timeout
+- Retry logic with exponential backoff
+- Response mapping and variable storage
+- Payload modes (args_only, full_context)
 
 ---
 
 ## Monitoring & Debugging
 
-### Backend Swagger Docs
-
-Access `http://localhost:8000/docs` for interactive API documentation. You can test all endpoints directly from the browser.
-
-### Key Endpoints to Monitor
+### Key Health Checks
 
 ```bash
-# Health check
+# Backend health
 curl http://localhost:8000/health
 
-# Count agents
-curl http://localhost:8000/api/agents | python3 -c "import sys,json; print(len(json.load(sys.stdin)))"
+# Integration status
+curl http://localhost:8000/api/diagnostics
 
-# List recent calls with status
-curl http://localhost:8000/api/calls | python3 -c "
-import sys,json
-for c in json.load(sys.stdin)[:10]:
-    print(f\"{c['id'][:8]}  {c['direction']:8}  {c['status']:12}  {c.get('duration_seconds','—')}s\")
-"
-
-# Check function call logs for a specific call
-curl http://localhost:8000/api/calls/{call_id}/transcript
+# Active LiveKit rooms
+curl http://localhost:8000/api/livekit/rooms
 ```
 
-### Supabase Dashboard Monitoring
+### Backend Logs
 
-- **Table Editor:** View and edit all records directly
-- **SQL Editor:** Run custom queries:
-  ```sql
-  -- Active calls
-  SELECT * FROM calls WHERE status = 'in-progress';
-
-  -- Failed function calls
-  SELECT * FROM function_call_logs WHERE status = 'failed' ORDER BY executed_at DESC;
-
-  -- Call volume by day
-  SELECT DATE(started_at) as day, COUNT(*) FROM calls GROUP BY day ORDER BY day DESC;
-
-  -- Average call duration
-  SELECT AVG(duration_seconds) FROM calls WHERE status = 'completed';
-  ```
-
-### Backend Logging
-
-The backend uses Python's `logging` module. Logs are printed to stdout by uvicorn. Key log messages:
-
+The backend logs to stdout. Key messages:
 ```
-INFO:  Deepgram STT connected
-INFO:  Voice session started: call=uuid, agent=uuid
-INFO:  Voice session ended: call=uuid, reason=completed, duration=45s
-ERROR: Deepgram send error: ...
-ERROR: ElevenLabs TTS error 401: ...
-ERROR: Tool execution error: get_weather: ...
+INFO:  Starting voice session: agent=AgentName, call=uuid
+INFO:  Session ended: call=uuid, duration=45s
+ERROR: Failed to load RAG context: ...
+ERROR: Tool execution error: function_name: ...
 ```
 
-To increase log verbosity:
+### Supabase Monitoring
+
+```sql
+-- Active calls
+SELECT * FROM calls WHERE status = 'in-progress';
+
+-- Failed function calls
+SELECT * FROM function_call_logs WHERE status = 'failed' ORDER BY executed_at DESC;
+
+-- Call volume by day
+SELECT DATE(started_at) as day, COUNT(*) FROM calls GROUP BY day ORDER BY day DESC;
+
+-- Recent transcripts
+SELECT t.role, t.content, t.timestamp
+FROM transcript_entries t
+JOIN calls c ON t.call_id = c.id
+WHERE c.status = 'completed'
+ORDER BY t.timestamp DESC
+LIMIT 20;
+```
+
+### Debug Agent Worker
+
 ```bash
-uvicorn main:app --reload --log-level debug
+# Run with verbose logging
+LOGLEVEL=DEBUG python livekit_agent.py dev
 ```
 
----
+### Debug Chat API
 
-## Troubleshooting
+Check browser DevTools → Network tab → filter by `/api/chat` → look at the EventStream response for errors.
 
-### "Cannot create agent" / API errors
-- Verify Supabase is configured: check `SUPABASE_URL` and `SUPABASE_KEY` in `.env`
-- Verify tables exist: run the migration SQL in Supabase SQL Editor
-- Check backend logs for specific error messages
-
-### WebSocket voice call doesn't work
-- Ensure `DEEPGRAM_API_KEY` is set (required for STT)
-- Ensure `ELEVENLABS_API_KEY` is set (required for TTS)
-- Ensure at least one LLM provider key is set
-- Check browser console for WebSocket errors
-- Ensure microphone permissions are granted
-
-### Twilio calls fail
-- Ensure `APP_URL` is publicly accessible (use ngrok for local dev)
-- Verify Twilio webhook URL points to `/api/twilio/incoming`
-- Check Twilio Console → Monitor → Logs for error details
-- Ensure the phone number has Voice capability enabled
-
-### LLM returns empty response
-- Verify the API key for the selected model's provider is set
-- Check backend logs for authentication errors
-- Try a different model/provider
-
-### Frontend shows "Loading..." forever
-- Verify the backend is running on port 8000
-- Check browser Network tab for failed API requests
-- Verify `NEXT_PUBLIC_API_URL` in `frontend/.env.local` matches the backend URL
-
-### CORS errors
-- The backend allows all origins by default (`allow_origins=["*"]`)
-- If you've restricted CORS, ensure your frontend URL is included
-
----
-
-## Production Deployment Notes
-
-Before deploying to production:
-
-1. **CORS:** Restrict `allow_origins` in `main.py` to your frontend domain
-2. **Supabase Key:** Use a service role key with appropriate RLS policies
-3. **APP_URL:** Set to your public backend URL for Twilio webhooks
-4. **HTTPS:** Use HTTPS for both frontend and backend (required for browser microphone access)
-5. **WebSocket URL:** Update `NEXT_PUBLIC_WS_URL` to `wss://` for production
-6. **Rate Limiting:** Add rate limiting middleware to FastAPI
-7. **Authentication:** Add user authentication (not included in this version)
+Chat API logs to the Next.js server console:
+```
+[chat] model: gpt-4
+[chat] tools received: 3
+  -> check_weather | params type: object | url: https://...
+[chat] round done — content: 42 chars, tool_calls: 1
+  -> tool_call: check_weather({"city":"NYC"})
+```

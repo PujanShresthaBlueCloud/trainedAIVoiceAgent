@@ -1,92 +1,90 @@
-# trainedAIVoiceAgent
+# Trained Logic AI Voice
 
-Voice AI platform with real-time STT → LLM → TTS pipeline, custom webhook functions, and RAG-powered knowledge bases.
+Voice AI platform with real-time voice calls powered by LiveKit (STT → LLM → TTS), custom webhook functions, integration templates, AI chat, and RAG-powered knowledge bases.
 
 ## Architecture
 
 ```
-Frontend (Next.js)          Backend (FastAPI)
-├── Dashboard               ├── Routers (REST API)
-├── Agents                  │   ├── /api/agents
-├── Calls                   │   ├── /api/calls
-├── System Prompts          │   ├── /api/system-prompts
-├── Custom Functions        │   ├── /api/custom-functions
-├── Knowledge Base          │   └── /api/knowledge-bases
-└── WebSocket Client        ├── Voice Pipeline
-                            │   ├── session.py (STT→LLM→TTS)
-                            │   ├── tools.py (built-in + custom)
-                            │   └── functions.py (webhook executor)
-                            ├── Services
-                            │   ├── deepgram_stt.py
-                            │   ├── elevenlabs_tts.py
-                            │   ├── llm.py (OpenAI/Anthropic/Google/Groq/DeepSeek)
-                            │   ├── vector_db.py (Pinecone)
-                            │   └── document_processor.py (RAG pipeline)
-                            └── WebSocket (/ws/voice-browser)
+Frontend (Next.js 14)                Backend (FastAPI + LiveKit Agent)
+├── Dashboard                        ├── Routers (REST API)
+├── Agent Detail (/agents/[id])      │   ├── /api/agents
+│   ├── Model & Voice config         │   ├── /api/calls
+│   ├── System Prompt editor         │   ├── /api/system-prompts
+│   ├── Functions & Integrations     │   ├── /api/custom-functions
+│   ├── Test Voice Call (LiveKit)    │   ├── /api/knowledge-bases
+│   └── Test AI Chat (streaming)     │   ├── /api/livekit
+├── Agents list                      │   └── /api/phone-numbers
+├── Calls history                    ├── LiveKit Agent Worker
+├── System Prompts                   │   ├── livekit_agent.py (entrypoint)
+├── Custom Functions                 │   ├── Deepgram STT (nova-3)
+├── Knowledge Base                   │   ├── Multi-provider LLM
+├── Phone Numbers                    │   ├── Cartesia TTS (sonic-3)
+└── Settings                         │   └── Silero VAD
+                                     ├── Voice Pipeline
+                                     │   ├── tools.py (built-in + custom)
+                                     │   └── functions.py (webhook executor)
+                                     └── Services
+                                         ├── livekit_service.py (rooms/tokens)
+                                         ├── vector_db.py (Pinecone)
+                                         └── document_processor.py (RAG)
 ```
 
-## Setup
-
-### Backend
+## Quick Start
 
 ```bash
+# Backend
 cd backend
-python -m venv venv
-source venv/bin/activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env  # Fill in API keys
 uvicorn app.main:app --reload --port 8000
-```
 
-### Frontend
+# LiveKit Agent (separate terminal)
+cd backend
+source venv/bin/activate
+python livekit_agent.py dev
 
-```bash
+# Frontend
 cd frontend
 npm install
+cp .env.local.example .env.local  # Fill in keys
 npm run dev  # http://localhost:3000
 ```
 
-### Environment Variables
-
-| Variable | Required | Description |
-|---|---|---|
-| `SUPABASE_URL` | Yes | Supabase project URL |
-| `SUPABASE_KEY` | Yes | Supabase anon/service key |
-| `OPENAI_API_KEY` | Yes | OpenAI API key (LLM + embeddings) |
-| `DEEPGRAM_API_KEY` | Yes | Deepgram STT key |
-| `ELEVENLABS_API_KEY` | Yes | ElevenLabs TTS key |
-| `ANTHROPIC_API_KEY` | No | Claude models |
-| `GOOGLE_API_KEY` | No | Gemini models |
-| `GROQ_API_KEY` | No | Groq models (Llama, Mixtral) |
-| `DEEPSEEK_API_KEY` | No | DeepSeek models |
-| `TWILIO_ACCOUNT_SID` | No | Twilio for phone calls |
-| `TWILIO_AUTH_TOKEN` | No | Twilio auth |
-| `TWILIO_PHONE_NUMBER` | No | Twilio phone number |
-| `PINECONE_API_KEY` | No | Pinecone for knowledge base RAG |
-| `EMBEDDING_MODEL` | No | Default: `text-embedding-3-small` |
-| `CHUNK_SIZE` | No | Default: `500` tokens |
-| `CHUNK_OVERLAP` | No | Default: `50` tokens |
-| `RAG_TOP_K` | No | Default: `5` chunks returned |
-
-### Database Migration
-
-Run the SQL from `GET /api/migrate` in the Supabase SQL Editor to create all tables.
+See [SETUP.md](SETUP.md) for detailed setup instructions.
 
 ## Features
 
 ### Agents
-
 Voice AI agents with configurable:
-- **System prompt** — personality and instructions
-- **LLM model** — GPT-4, Claude, Gemini, Llama, Mixtral, DeepSeek
-- **Voice** — ElevenLabs voice ID
-- **Language** — STT language code
+- **System prompt** with welcome message and AI-speaks-first option
+- **LLM model** — GPT-4/4o, Claude, Gemini, Llama, Mixtral, DeepSeek
+- **Voice** — Cartesia voice ID (for LiveKit calls) + optional ElevenLabs voice ID
+- **Language** — STT/TTS language code
 - **Tools** — built-in tools + custom webhook functions
 - **Knowledge Base** — optional RAG-powered context retrieval
+- **Integration templates** — quick-create webhook functions for n8n, Zapier, Make
+
+### Voice Calls (LiveKit)
+Real-time voice calls via LiveKit with low-latency pipeline:
+1. Browser captures microphone → LiveKit room
+2. **Deepgram STT** (nova-3) transcribes with 100ms endpointing
+3. **LLM** processes with conversation history, tools, and RAG context
+4. **Tool calls** execute built-in functions or custom webhooks
+5. **Cartesia TTS** (sonic-3) synthesizes response audio
+6. Audio streams back to browser in real-time
+
+Features: preemptive generation, interruption support, welcome message on connect.
+
+### AI Chat
+Browser-based streaming chat with agent's system prompt and tools:
+- Multi-provider LLM routing (OpenAI, Anthropic, DeepSeek, Google, Groq)
+- Server-Sent Events (SSE) streaming
+- Function/tool calling with webhook execution (up to 5 rounds)
+- Inline tool call and result display
 
 ### Custom Functions (Webhook Integration)
-
-Define webhook-backed tools that agents can call during voice conversations.
+Define webhook-backed tools that agents can call during voice or chat conversations:
 
 | Field | Description |
 |---|---|
@@ -95,61 +93,27 @@ Define webhook-backed tools that agents can call during voice conversations.
 | `webhook_url` | URL to call when function is invoked |
 | `method` | HTTP method (GET/POST/PUT/PATCH) |
 | `parameters` | JSON Schema for function arguments |
-| `headers` | Custom HTTP headers |
+| `headers` | Custom HTTP headers (key-value pairs) |
+| `query_params` | Query parameters appended to URL |
 | `timeout_seconds` | Request timeout (default: 30s) |
 | `retry_count` | Number of retries on failure (default: 0) |
+| `payload_mode` | `args_only` or `full_context` |
 | `response_mapping` | Extract fields from response using dot-notation paths |
-| `speak_during_execution` | Filler text spoken to user while webhook executes |
+| `store_variables` | Extract and store variables from response |
+| `speak_during_execution` | Filler text spoken while webhook executes |
 | `speak_on_failure` | Text spoken if webhook fails after retries |
 
-**Response Mapping** uses dot-notation paths to extract fields from webhook responses:
-```json
-{
-  "status": "$.data.status",
-  "message": "$.result.message",
-  "price": "$.items.0.price"
-}
-```
-
-**Test Webhook** button sends a test request to validate the webhook URL and shows the response inline.
-
-**Call Context Injection** — when a custom function is called during a voice session, the request body includes `_call_context` with `call_id` and `recent_transcript`.
+### Integration Templates
+Quick-create webhook functions from the agent detail page:
+- **n8n** — pre-filled URL pattern `https://your-n8n.com/webhook/...`
+- **Zapier** — pre-filled URL pattern `https://hooks.zapier.com/hooks/catch/...`
+- **Make** — pre-filled URL pattern `https://hook.us1.make.com/...`
+- **Custom Webhook** — generic, no prefill
 
 ### Knowledge Base (RAG)
-
-Upload documents to a vector database. During voice calls, the agent automatically searches the knowledge base for relevant context before responding.
+Upload documents to a vector database for context-aware responses.
 
 **Pipeline:** Upload → Parse (PDF/TXT/DOCX/CSV) → Chunk (500 tokens, 50 overlap) → Embed (OpenAI) → Upsert (Pinecone)
-
-**Supported file types:** `.pdf`, `.txt`, `.docx`, `.csv`
-
-**How RAG works in calls:**
-1. User speaks → STT transcribes
-2. User message is embedded via OpenAI
-3. Top-K similar chunks are retrieved from Pinecone
-4. Chunks are injected as a system message before the LLM call
-5. LLM responds with knowledge-base-informed answer
-6. Response is spoken via TTS
-
-**Configuration per knowledge base:**
-- Provider (Pinecone)
-- API key, index name, host, namespace
-
-**Connecting to an agent:**
-Select a knowledge base in the agent's edit form. The agent will use it for RAG during all voice calls.
-
-### Voice Pipeline
-
-Real-time bidirectional audio over WebSocket:
-
-1. **Browser** captures microphone audio → sends to backend via WebSocket
-2. **Deepgram STT** transcribes audio in real-time
-3. **LLM** processes transcript with conversation history, tools, and RAG context
-4. **Tool calls** execute built-in functions or custom webhooks (with filler speech)
-5. **ElevenLabs TTS** synthesizes response audio
-6. **Audio chunks** stream back to browser for playback
-
-**Interruption:** User speech detected by STT cancels in-progress TTS playback.
 
 ### Built-in Tools
 
@@ -159,6 +123,10 @@ Real-time bidirectional audio over WebSocket:
 | `transfer_call` | Transfer to another number/department |
 | `check_availability` | Check appointment availability |
 | `book_appointment` | Book an appointment |
+
+## Environment Variables
+
+See [SETUP.md](SETUP.md) for the full list.
 
 ## API Endpoints
 
@@ -195,25 +163,28 @@ Real-time bidirectional audio over WebSocket:
 - `GET /api/knowledge-bases/{id}` — Get knowledge base
 - `POST /api/knowledge-bases` — Create knowledge base
 - `PUT /api/knowledge-bases/{id}` — Update knowledge base
-- `DELETE /api/knowledge-bases/{id}` — Delete knowledge base (removes vectors)
+- `DELETE /api/knowledge-bases/{id}` — Delete knowledge base
 - `GET /api/knowledge-bases/{id}/files` — List files
 - `POST /api/knowledge-bases/{id}/files` — Upload file (multipart)
-- `DELETE /api/knowledge-bases/{id}/files/{file_id}` — Delete file (removes vectors)
+- `DELETE /api/knowledge-bases/{id}/files/{file_id}` — Delete file
+
+### LiveKit
+- `POST /api/livekit/token` — Generate LiveKit token + create room
+- `GET /api/livekit/rooms` — List active LiveKit rooms
 
 ### Other
 - `GET /` — Service status
 - `GET /health` — Health check
 - `GET /api/diagnostics` — Check configured API keys
 - `POST /api/migrate` — Get migration SQL
-- `WS /ws/voice-browser?agent_id={id}` — Voice WebSocket
 
 ## Project Structure
 
 ```
 backend/
 ├── app/
-│   ├── main.py                    # FastAPI app, routes, WebSocket
-│   ├── config.py                  # Settings (env vars)
+│   ├── main.py                    # FastAPI app, routes, CORS
+│   ├── config.py                  # Settings (env vars via pydantic)
 │   ├── database.py                # Supabase client + migration SQL
 │   ├── routers/
 │   │   ├── agents.py              # Agent CRUD
@@ -221,21 +192,16 @@ backend/
 │   │   ├── system_prompts.py      # System prompt CRUD
 │   │   ├── custom_functions.py    # Custom function CRUD + test
 │   │   ├── knowledge_bases.py     # KB CRUD + file upload
-│   │   └── twilio_webhooks.py     # Twilio webhooks
+│   │   ├── phone_numbers.py       # Phone number management
+│   │   └── livekit.py             # LiveKit token + rooms
 │   ├── voice/
-│   │   ├── session.py             # VoiceSession (STT→LLM→TTS + RAG)
-│   │   ├── session_browser.py     # Browser WebSocket session
-│   │   ├── session_twilio.py      # Twilio WebSocket session
 │   │   ├── tools.py               # Tool definitions (built-in + dynamic)
-│   │   ├── functions.py           # Tool execution (webhooks + retry)
-│   │   └── audio_codec.py         # Audio encoding/decoding
+│   │   └── functions.py           # Tool execution (webhooks + retry)
 │   └── services/
-│       ├── llm.py                 # Multi-provider LLM streaming
-│       ├── deepgram_stt.py        # Speech-to-text
-│       ├── elevenlabs_tts.py      # Text-to-speech
-│       ├── twilio_service.py      # Twilio integration
+│       ├── livekit_service.py     # LiveKit room/token/SIP management
 │       ├── vector_db.py           # Vector DB provider (Pinecone)
 │       └── document_processor.py  # Parse, chunk, embed documents
+├── livekit_agent.py               # LiveKit agent worker (STT→LLM→TTS)
 └── requirements.txt
 
 frontend/
@@ -243,17 +209,21 @@ frontend/
 │   ├── layout.tsx                 # Root layout with sidebar
 │   ├── page.tsx                   # Landing page
 │   ├── dashboard/page.tsx         # Dashboard
-│   ├── agents/page.tsx            # Agent management
+│   ├── agents/page.tsx            # Agent list
+│   ├── agents/[id]/page.tsx       # Agent detail (config + test call + chat)
 │   ├── calls/page.tsx             # Call history
 │   ├── system-prompts/page.tsx    # System prompts
 │   ├── custom-functions/page.tsx  # Custom functions
-│   └── knowledge-base/page.tsx    # Knowledge base management
+│   ├── knowledge-base/page.tsx    # Knowledge base management
+│   ├── phone-numbers/page.tsx     # Phone numbers
+│   ├── settings/page.tsx          # Settings
+│   └── api/chat/route.ts          # Streaming chat API (SSE)
 ├── components/
 │   ├── Sidebar.tsx                # Navigation sidebar
 │   ├── TestCallSection.tsx        # Voice call testing UI
-│   └── VoiceCallButton.tsx        # Voice call button
+│   └── VoiceCallButton.tsx        # Voice call button + transcript
 ├── lib/
-│   ├── api.ts                     # API client
-│   └── useVoiceSession.ts         # Voice WebSocket hook
+│   ├── api.ts                     # Backend API client
+│   └── useVoiceSession.ts         # LiveKit voice session hook
 └── types/index.ts                 # TypeScript interfaces
 ```
