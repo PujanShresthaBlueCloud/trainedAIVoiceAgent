@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from livekit import agents, rtc
-from livekit.agents import AgentSession, Agent, RoomInputOptions
+from livekit import agents
+from livekit.agents import AgentSession, Agent
 from livekit.agents.llm import function_tool
 from livekit.plugins import deepgram, openai, cartesia, silero, anthropic
 
@@ -73,13 +73,16 @@ def _build_llm(agent_config: dict):
 def _build_tts(agent_config: dict) -> cartesia.TTS:
     """Build Cartesia TTS plugin from agent config."""
     language = agent_config.get("language", "en-US")
-    voice_id = agent_config.get("voice_id", None)
+
+    # Use Cartesia voice ID from agent metadata, or fall back to default
+    metadata = agent_config.get("metadata") or {}
+    cartesia_voice = metadata.get("cartesia_voice_id")
+
     return cartesia.TTS(
         model="sonic-3",
         language=language[:2] if language else "en",
         api_key=settings.CARTESIA_API_KEY,
-        speed=1.2,
-        **({"voice": voice_id} if voice_id else {}),
+        **({"voice": cartesia_voice} if cartesia_voice else {}),
     )
 
 
@@ -103,6 +106,21 @@ def _load_rag_context(agent_config: dict) -> str:
         return ""
 
 
+def _load_custom_functions(tool_names: list[str]) -> dict[str, dict]:
+    """Batch-load all custom function definitions in a single DB query."""
+    custom_names = [n for n in tool_names if n not in BUILT_IN_TOOLS]
+    if not custom_names:
+        return {}
+
+    try:
+        db = get_supabase()
+        result = db.table("custom_functions").select("name,description").eq("is_active", True).in_("name", custom_names).execute()
+        return {f["name"]: f for f in (result.data or [])}
+    except Exception as e:
+        logger.error(f"Failed to batch-load custom functions: {e}")
+        return {}
+
+
 def _build_agent(agent_config: dict, call_id: str) -> Agent:
     """Build a LiveKit Agent with instructions and tools from agent config."""
     system_prompt = agent_config.get("system_prompt", "You are a helpful voice AI assistant.")
@@ -110,6 +128,9 @@ def _build_agent(agent_config: dict, call_id: str) -> Agent:
     instructions = system_prompt + rag_context
 
     tools_enabled = agent_config.get("tools_enabled", [])
+
+    # Batch-load all custom function defs in one query (instead of N queries)
+    custom_funcs = _load_custom_functions(tools_enabled)
 
     class VoiceAgent(Agent):
         def __init__(self):
@@ -130,7 +151,6 @@ def _build_agent(agent_config: dict, call_id: str) -> Agent:
                 async def end_call(reason: str = "completed") -> str:
                     result = await execute_tool(cid, "end_call", {"reason": reason})
                     return json.dumps(result)
-                self._tools = getattr(self, '_tools', [])
 
             elif tool_name == "transfer_call":
                 @function_tool(name="transfer_call", description="Transfer the call to another phone number or department.")
@@ -150,29 +170,15 @@ def _build_agent(agent_config: dict, call_id: str) -> Agent:
                     result = await execute_tool(cid, "book_appointment", {"name": name, "date": date, "time": time, "notes": notes})
                     return json.dumps(result)
 
-            else:
-                # Custom function from database
-                self._register_custom_tool(tool_name)
-
-        def _register_custom_tool(self, tool_name: str):
-            """Register a custom function tool loaded from Supabase."""
-            try:
-                db = get_supabase()
-                result = db.table("custom_functions").select("*").eq("name", tool_name).eq("is_active", True).execute()
-                if not result.data:
-                    return
-
-                func_def = result.data[0]
+            elif tool_name in custom_funcs:
+                # Custom function — already loaded from DB
+                func_def = custom_funcs[tool_name]
                 description = func_def.get("description", f"Custom function: {tool_name}")
-                cid = self._call_id
 
                 @function_tool(name=tool_name, description=description)
                 async def custom_tool(**kwargs) -> str:
                     result = await execute_tool(cid, tool_name, kwargs)
                     return json.dumps(result)
-
-            except Exception as e:
-                logger.error(f"Failed to register custom tool {tool_name}: {e}")
 
     return VoiceAgent()
 
@@ -268,6 +274,15 @@ async def entrypoint(ctx: agents.JobContext):
         room=ctx.room,
         agent=agent,
     )
+
+    # Send welcome message so the agent speaks first (reduces perceived latency)
+    agent_metadata = agent_config.get("metadata") or {}
+    welcome_msg = agent_metadata.get("welcome_message", "")
+    ai_speaks_first = agent_metadata.get("ai_speaks_first", True)
+    if ai_speaks_first and welcome_msg:
+        await session.say(welcome_msg)
+    elif ai_speaks_first:
+        await session.say("Hello! How can I help you today?")
 
     # Wait for the session to end (participant disconnects)
     async def _monitor_disconnect():

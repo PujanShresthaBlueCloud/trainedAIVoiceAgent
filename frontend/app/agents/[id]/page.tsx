@@ -946,6 +946,7 @@ export default function AgentDetailPage() {
   const [pauseBeforeSpeaking, setPauseBeforeSpeaking] = useState(0);
   const [aiSpeaksFirst, setAiSpeaksFirst] = useState(false);
   const [dynamicMessage, setDynamicMessage] = useState(false);
+  const [cartesiaVoiceId, setCartesiaVoiceId] = useState("");
 
   // Dirty tracking — snapshot of last-saved form values
   const [savedSnapshot, setSavedSnapshot] = useState<string>("");
@@ -965,11 +966,12 @@ export default function AgentDetailPage() {
         pauseBeforeSpeaking,
         aiSpeaksFirst,
         dynamicMessage,
+        cartesiaVoiceId,
       }),
     [
       name, description, systemPrompt, voiceId, language, llmModel,
       toolsEnabled, isActive, knowledgeBaseId, welcomeMessage,
-      pauseBeforeSpeaking, aiSpeaksFirst, dynamicMessage,
+      pauseBeforeSpeaking, aiSpeaksFirst, dynamicMessage, cartesiaVoiceId,
     ]
   );
   const isDirty = savedSnapshot !== "" && currentSnapshot !== savedSnapshot;
@@ -1009,6 +1011,7 @@ export default function AgentDetailPage() {
     setPauseBeforeSpeaking(meta.pause_before_speaking ?? 0);
     setAiSpeaksFirst(meta.ai_speaks_first ?? false);
     setDynamicMessage(meta.dynamic_message ?? false);
+    setCartesiaVoiceId(meta.cartesia_voice_id || "");
   }, []);
 
   const snapshotForm = useCallback((data: Agent) => {
@@ -1028,6 +1031,7 @@ export default function AgentDetailPage() {
         pauseBeforeSpeaking: meta.pause_before_speaking ?? 0,
         aiSpeaksFirst: meta.ai_speaks_first ?? false,
         dynamicMessage: meta.dynamic_message ?? false,
+        cartesiaVoiceId: meta.cartesia_voice_id || "",
       })
     );
   }, []);
@@ -1119,6 +1123,7 @@ export default function AgentDetailPage() {
           pause_before_speaking: pauseBeforeSpeaking,
           ai_speaks_first: aiSpeaksFirst,
           dynamic_message: dynamicMessage,
+          cartesia_voice_id: cartesiaVoiceId.trim() || undefined,
         },
       };
       await api.updateAgent(agentId, payload);
@@ -1577,16 +1582,32 @@ export default function AgentDetailPage() {
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Voice ID (ElevenLabs)
-                </label>
-                <input
-                  type="text"
-                  value={voiceId}
-                  onChange={(e) => setVoiceId(e.target.value)}
-                  className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none font-mono text-xs"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Voice ID (Cartesia)
+                  </label>
+                  <input
+                    type="text"
+                    value={cartesiaVoiceId}
+                    onChange={(e) => setCartesiaVoiceId(e.target.value)}
+                    placeholder="e.g. f786b574-daa5-4673-aa0c-cbe3e8534c02"
+                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none font-mono text-xs"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Used for voice calls (TTS). Leave blank for default voice.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Voice ID (ElevenLabs)
+                  </label>
+                  <input
+                    type="text"
+                    value={voiceId}
+                    onChange={(e) => setVoiceId(e.target.value)}
+                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none font-mono text-xs"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Optional. Used if ElevenLabs TTS is configured.</p>
+                </div>
               </div>
             </CollapsibleSection>
 
