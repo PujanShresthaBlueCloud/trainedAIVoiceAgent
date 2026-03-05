@@ -30,6 +30,9 @@ import {
   Pencil,
   Play,
   Unplug,
+  Send,
+  RotateCcw,
+  User,
 } from "lucide-react";
 
 const LLM_MODELS = [
@@ -911,6 +914,13 @@ export default function AgentDetailPage() {
   const [testedFnId, setTestedFnId] = useState<string | null>(null);
   const [testFnResult, setTestFnResult] = useState<{ success: boolean; message: string; time?: number } | null>(null);
 
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatStreaming, setChatStreaming] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+
   // Toast
   const [toast, setToast] = useState<ToastState>({ message: "", type: "success", visible: false });
   const showToast = useCallback((message: string, type: "success" | "error") => {
@@ -1212,6 +1222,105 @@ export default function AgentDetailPage() {
 
   const handleRemoveFunction = (fnName: string) => {
     setToolsEnabled((prev) => prev.filter((t) => t !== fnName));
+  };
+
+  // --- Chat helpers ---
+  const scrollChatToBottom = useCallback(() => {
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  }, []);
+
+  const handleSendChat = async () => {
+    const text = chatInput.trim();
+    if (!text || chatStreaming) return;
+
+    const userMsg = { role: "user" as const, content: text };
+    const updatedMessages = [...chatMessages, userMsg];
+    setChatMessages(updatedMessages);
+    setChatInput("");
+    setChatStreaming(true);
+    scrollChatToBottom();
+
+    // Add empty assistant message to stream into
+    setChatMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: updatedMessages,
+          systemPrompt: systemPrompt,
+          model: llmModel,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Chat request failed" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error("No response stream");
+
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") break;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.content) {
+              setChatMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === "assistant") {
+                  next[next.length - 1] = { ...last, content: last.content + parsed.content };
+                }
+                return next;
+              });
+              scrollChatToBottom();
+            }
+          } catch {
+            // skip malformed chunks
+          }
+        }
+      }
+    } catch (e: any) {
+      setChatMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.role === "assistant" && !last.content) {
+          next[next.length - 1] = { ...last, content: `Error: ${e.message}` };
+        } else {
+          next.push({ role: "assistant", content: `Error: ${e.message}` });
+        }
+        return next;
+      });
+    } finally {
+      setChatStreaming(false);
+      scrollChatToBottom();
+    }
+  };
+
+  const handleChatKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendChat();
+    }
+  };
+
+  const resetChat = () => {
+    setChatMessages([]);
+    setChatInput("");
   };
 
   // Derived: split custom functions into connected vs available
@@ -1725,9 +1834,9 @@ export default function AgentDetailPage() {
 
         {/* Right Panel — Test & History */}
         <div className="w-[40%] flex flex-col min-h-0">
-          {/* Test Panel */}
+          {/* Tab Bar */}
           <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-800">
-            <div className="flex border-b border-gray-200 dark:border-gray-800">
+            <div className="flex">
               <button
                 onClick={() => setTestTab("audio")}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
@@ -1751,8 +1860,12 @@ export default function AgentDetailPage() {
                 Test Chat
               </button>
             </div>
-            <div className="p-4">
-              {testTab === "audio" ? (
+          </div>
+
+          {testTab === "audio" ? (
+            <>
+              {/* Audio Test Panel */}
+              <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-800 p-4">
                 <div className="space-y-3">
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     Test your agent with a live voice call. Make sure your microphone is connected.
@@ -1762,102 +1875,205 @@ export default function AgentDetailPage() {
                   </p>
                   <VoiceCallButton agentId={agentId} size="lg" />
                 </div>
-              ) : (
-                <div className="flex items-center justify-center py-8 text-sm text-gray-400 dark:text-gray-500">
-                  Text-based testing — Coming Soon
-                </div>
-              )}
-            </div>
-          </div>
+              </div>
 
-          {/* History */}
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-              <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-gray-400" />
-                <span className="text-sm font-medium text-gray-900 dark:text-white">
-                  Call History
-                </span>
-                <span className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
-                  {calls.length}
-                </span>
-              </div>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  value={callSearch}
-                  onChange={(e) => setCallSearch(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 w-40 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {callsLoading ? (
-                <div className="flex items-center justify-center py-12 gap-2 text-gray-400 dark:text-gray-500">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">Loading calls...</span>
+              {/* Call History */}
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
+                  <div className="flex items-center gap-2">
+                    <History className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">
+                      Call History
+                    </span>
+                    <span className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+                      {calls.length}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search..."
+                      value={callSearch}
+                      onChange={(e) => setCallSearch(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 w-40 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                    />
+                  </div>
                 </div>
-              ) : filteredCalls.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
-                  <Phone className="w-8 h-8 mb-2 opacity-50" />
-                  <p className="text-sm">{calls.length === 0 ? "No calls yet" : "No matching calls"}</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-200 dark:divide-gray-800">
-                  {filteredCalls.map((call) => (
-                    <Link
-                      key={call.id}
-                      href="/calls"
-                      className="block px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                                call.status === "completed"
-                                  ? "bg-green-400"
-                                  : call.status === "in_progress" || call.status === "in-progress"
-                                  ? "bg-yellow-400"
-                                  : "bg-gray-400"
-                              }`}
-                            />
-                            <span className="text-sm text-gray-900 dark:text-white">
-                              {call.direction === "inbound" ? "Inbound" : "Outbound"} Call
-                            </span>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                              call.status === "completed"
-                                ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                                : call.status === "in_progress" || call.status === "in-progress"
-                                ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400"
-                                : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
-                            }`}>
-                              {call.status}
-                            </span>
+                <div className="flex-1 overflow-y-auto">
+                  {callsLoading ? (
+                    <div className="flex items-center justify-center py-12 gap-2 text-gray-400 dark:text-gray-500">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">Loading calls...</span>
+                    </div>
+                  ) : filteredCalls.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
+                      <Phone className="w-8 h-8 mb-2 opacity-50" />
+                      <p className="text-sm">{calls.length === 0 ? "No calls yet" : "No matching calls"}</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-200 dark:divide-gray-800">
+                      {filteredCalls.map((call) => (
+                        <Link
+                          key={call.id}
+                          href="/calls"
+                          className="block px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                    call.status === "completed"
+                                      ? "bg-green-400"
+                                      : call.status === "in_progress" || call.status === "in-progress"
+                                      ? "bg-yellow-400"
+                                      : "bg-gray-400"
+                                  }`}
+                                />
+                                <span className="text-sm text-gray-900 dark:text-white">
+                                  {call.direction === "inbound" ? "Inbound" : "Outbound"} Call
+                                </span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                  call.status === "completed"
+                                    ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                                    : call.status === "in_progress" || call.status === "in-progress"
+                                    ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400"
+                                    : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                                }`}>
+                                  {call.status}
+                                </span>
+                              </div>
+                              {call.summary && (
+                                <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5 ml-4">
+                                  {call.summary}
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right flex-shrink-0 ml-3">
+                              <p className="text-xs text-gray-400">
+                                {formatDuration(call.duration_seconds)}
+                              </p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500">
+                                {formatDate(call.started_at)}
+                              </p>
+                            </div>
                           </div>
-                          {call.summary && (
-                            <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5 ml-4">
-                              {call.summary}
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-right flex-shrink-0 ml-3">
-                          <p className="text-xs text-gray-400">
-                            {formatDuration(call.duration_seconds)}
-                          </p>
-                          <p className="text-xs text-gray-400 dark:text-gray-500">
-                            {formatDate(call.started_at)}
-                          </p>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+            </>
+          ) : (
+            /* Chat Panel — full height */
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* Chat header */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <Bot className="w-4 h-4 text-indigo-500" />
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    {llmModel}
+                  </span>
+                  {chatMessages.length > 0 && (
+                    <span className="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full">
+                      {chatMessages.filter((m) => m.role === "user").length} messages
+                    </span>
+                  )}
+                </div>
+                {chatMessages.length > 0 && (
+                  <button
+                    onClick={resetChat}
+                    disabled={chatStreaming}
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors disabled:opacity-50"
+                    title="Reset conversation"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              {/* Messages area */}
+              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+                {chatMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+                    <MessageSquare className="w-10 h-10 mb-3 opacity-40" />
+                    <p className="text-sm font-medium">Test your agent with text</p>
+                    <p className="text-xs mt-1 text-center max-w-[220px]">
+                      Send a message to see how your agent responds using the current system prompt and model.
+                    </p>
+                  </div>
+                ) : (
+                  chatMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex gap-2.5 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                    >
+                      {msg.role === "assistant" && (
+                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center mt-0.5">
+                          <Bot className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                        </div>
+                      )}
+                      <div
+                        className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                          msg.role === "user"
+                            ? "bg-indigo-600 text-white rounded-br-sm"
+                            : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-sm"
+                        }`}
+                      >
+                        {msg.content || (
+                          <span className="inline-flex items-center gap-1 text-gray-400">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Thinking...
+                          </span>
+                        )}
+                      </div>
+                      {msg.role === "user" && (
+                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center mt-0.5">
+                          <User className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Chat input */}
+              <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-800 p-3">
+                <div className="flex items-end gap-2">
+                  <textarea
+                    ref={chatInputRef}
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleChatKeyDown}
+                    placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+                    rows={1}
+                    className="flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none max-h-32"
+                    style={{ minHeight: "40px" }}
+                    onInput={(e) => {
+                      const target = e.target as HTMLTextAreaElement;
+                      target.style.height = "40px";
+                      target.style.height = Math.min(target.scrollHeight, 128) + "px";
+                    }}
+                  />
+                  <button
+                    onClick={handleSendChat}
+                    disabled={!chatInput.trim() || chatStreaming}
+                    className="flex-shrink-0 w-10 h-10 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white rounded-xl flex items-center justify-center transition-colors"
+                  >
+                    {chatStreaming ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
