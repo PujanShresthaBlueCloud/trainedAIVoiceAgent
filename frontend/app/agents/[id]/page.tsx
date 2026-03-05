@@ -1244,6 +1244,19 @@ export default function AgentDetailPage() {
     setChatMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
+      // Build tool definitions from enabled custom functions
+      const tools = connectedFunctions.map((fn) => ({
+        id: fn.id,
+        name: fn.name,
+        description: fn.description || "",
+        parameters: fn.parameters || { type: "object", properties: {} },
+        webhook_url: fn.webhook_url,
+        method: fn.method,
+        headers: fn.headers,
+        timeout_seconds: fn.timeout_seconds,
+        payload_mode: fn.payload_mode,
+      }));
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1251,6 +1264,7 @@ export default function AgentDetailPage() {
           messages: updatedMessages,
           systemPrompt: systemPrompt,
           model: llmModel,
+          tools,
         }),
       });
 
@@ -1284,6 +1298,41 @@ export default function AgentDetailPage() {
                 const last = next[next.length - 1];
                 if (last && last.role === "assistant") {
                   next[next.length - 1] = { ...last, content: last.content + parsed.content };
+                }
+                return next;
+              });
+              scrollChatToBottom();
+            }
+            if (parsed.tool_call) {
+              const argsStr = JSON.stringify(parsed.tool_call.arguments, null, 2);
+              setChatMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === "assistant") {
+                  const toolInfo = `\n\n> Calling **${parsed.tool_call.name}**\n> \`\`\`json\n> ${argsStr.split("\n").join("\n> ")}\n> \`\`\`\n> Waiting for response...`;
+                  next[next.length - 1] = { ...last, content: last.content + toolInfo };
+                }
+                return next;
+              });
+              scrollChatToBottom();
+            }
+            if (parsed.tool_result) {
+              let resultPreview = parsed.tool_result.result;
+              try {
+                const parsed2 = JSON.parse(resultPreview);
+                resultPreview = JSON.stringify(parsed2, null, 2);
+              } catch { /* keep as-is */ }
+              if (resultPreview.length > 300) resultPreview = resultPreview.slice(0, 300) + "...";
+              setChatMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === "assistant") {
+                  // Replace "Waiting for response..." with actual result
+                  const content = last.content.replace(
+                    /> Waiting for response\.\.\.$/,
+                    `> Result received`
+                  );
+                  next[next.length - 1] = { ...last, content };
                 }
                 return next;
               });
