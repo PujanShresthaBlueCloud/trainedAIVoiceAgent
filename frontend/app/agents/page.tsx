@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Agent, CustomFunction, KnowledgeBase } from "@/types";
 import TestCallSection from "@/components/TestCallSection";
@@ -43,6 +44,7 @@ const AGENT_TYPES = ["Single Prompt", "Multi Prompt"] as const;
 const ITEMS_PER_PAGE = 10;
 
 export default function AgentsPage() {
+  const router = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -164,21 +166,7 @@ export default function AgentsPage() {
   };
 
   const openEdit = (agent: Agent) => {
-    setEditing(agent);
-    setForm({
-      name: agent.name,
-      description: agent.description || "",
-      system_prompt: agent.system_prompt,
-      voice_id: agent.voice_id,
-      language: agent.language,
-      llm_model: agent.llm_model,
-      tools_enabled: agent.tools_enabled || [],
-      is_active: agent.is_active,
-      knowledge_base_id: agent.knowledge_base_id || "",
-      folder: agent.metadata?.folder || "",
-      agent_type: agent.metadata?.agent_type || "Single Prompt",
-    });
-    setShowModal(true);
+    router.push(`/agents/${agent.id}`);
   };
 
   const handleSave = async () => {
