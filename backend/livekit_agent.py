@@ -78,7 +78,7 @@ def _build_tts(agent_config: dict) -> cartesia.TTS:
         model="sonic-3",
         language=language[:2] if language else "en",
         api_key=settings.CARTESIA_API_KEY,
-        speed="fast",
+        speed=1.2,
         **({"voice": voice_id} if voice_id else {}),
     )
 
