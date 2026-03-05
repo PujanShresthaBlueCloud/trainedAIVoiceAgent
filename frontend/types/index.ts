@@ -102,6 +102,24 @@ export interface KnowledgeBase {
   updated_at: string;
 }
 
+export interface ChatConversation {
+  id: string;
+  agent_id: string | null;
+  title: string | null;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+  agents?: { name: string } | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
 export interface KnowledgeBaseFile {
   id: string;
   knowledge_base_id: string;

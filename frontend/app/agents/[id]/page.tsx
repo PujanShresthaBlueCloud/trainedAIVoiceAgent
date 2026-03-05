@@ -920,6 +920,7 @@ export default function AgentDetailPage() {
   const [chatStreaming, setChatStreaming] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const [chatConversationId, setChatConversationId] = useState<string | null>(null);
 
   // Toast
   const [toast, setToast] = useState<ToastState>({ message: "", type: "success", visible: false });
@@ -1248,6 +1249,19 @@ export default function AgentDetailPage() {
     // Add empty assistant message to stream into
     setChatMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
+    // Persist: create conversation on first message, then save user message
+    let convId = chatConversationId;
+    try {
+      if (!convId) {
+        const conv = await api.createChatConversation({ agent_id: agentId, title: text.slice(0, 80) });
+        convId = conv.id;
+        setChatConversationId(conv.id);
+      }
+      await api.addChatMessage(convId!, { role: "user", content: text });
+    } catch (e) {
+      console.error("Failed to persist user message:", e);
+    }
+
     try {
       // Build tool definitions from enabled custom functions
       const tools = connectedFunctions.map((fn) => ({
@@ -1362,6 +1376,16 @@ export default function AgentDetailPage() {
     } finally {
       setChatStreaming(false);
       scrollChatToBottom();
+      // Persist assistant message
+      if (convId) {
+        setChatMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === "assistant" && last.content) {
+            api.addChatMessage(convId!, { role: "assistant", content: last.content }).catch(console.error);
+          }
+          return prev;
+        });
+      }
     }
   };
 
@@ -1375,6 +1399,7 @@ export default function AgentDetailPage() {
   const resetChat = () => {
     setChatMessages([]);
     setChatInput("");
+    setChatConversationId(null);
   };
 
   // Derived: split custom functions into connected vs available

@@ -146,4 +146,25 @@ CREATE INDEX IF NOT EXISTS idx_phone_numbers_phone ON phone_numbers(phone_number
 ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS query_params JSONB;
 ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS payload_mode TEXT DEFAULT 'args_only';
 ALTER TABLE custom_functions ADD COLUMN IF NOT EXISTS store_variables JSONB;
+
+-- Chat conversations & messages
+CREATE TABLE IF NOT EXISTS chat_conversations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
+    title TEXT,
+    message_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    conversation_id UUID REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_conversations_agent ON chat_conversations(agent_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conversation_id);
 """

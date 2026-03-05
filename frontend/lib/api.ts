@@ -103,6 +103,17 @@ export const api = {
     ),
   getLivekitRooms: () => request<any>("/api/livekit/rooms"),
 
+  // Chat Conversations
+  listChatConversations: () => request<any[]>("/api/chat-conversations"),
+  getChatConversation: (id: string) => request<any>(`/api/chat-conversations/${id}`),
+  getChatMessages: (id: string) => request<any[]>(`/api/chat-conversations/${id}/messages`),
+  createChatConversation: (data: any) =>
+    request<any>("/api/chat-conversations", { method: "POST", body: JSON.stringify(data) }),
+  addChatMessage: (id: string, data: any) =>
+    request<any>(`/api/chat-conversations/${id}/messages`, { method: "POST", body: JSON.stringify(data) }),
+  deleteChatConversation: (id: string) =>
+    request<any>(`/api/chat-conversations/${id}`, { method: "DELETE" }),
+
   // Diagnostics
   getDiagnostics: () => request<any>("/api/diagnostics"),
 };
