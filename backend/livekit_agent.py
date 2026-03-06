@@ -244,30 +244,23 @@ async def entrypoint(ctx: agents.JobContext):
 
     started_at = time.time()
 
-    # Register transcript event handlers
-    @session.on("agent_speech_committed")
-    def on_agent_speech(msg):
-        if call_id and msg.content:
-            try:
+    # Register transcript event handler (livekit-agents v1.0+)
+    @session.on("conversation_item_added")
+    def on_conversation_item(event):
+        if not call_id:
+            return
+        try:
+            role = event.item.role
+            text = event.item.text_content
+            if role in ("user", "assistant") and text:
                 db.table("transcript_entries").insert({
                     "call_id": call_id,
-                    "role": "assistant",
-                    "content": msg.content,
+                    "role": role,
+                    "content": text,
                 }).execute()
-            except Exception as e:
-                logger.error(f"Failed to save agent transcript: {e}")
-
-    @session.on("user_speech_committed")
-    def on_user_speech(msg):
-        if call_id and msg.content:
-            try:
-                db.table("transcript_entries").insert({
-                    "call_id": call_id,
-                    "role": "user",
-                    "content": msg.content,
-                }).execute()
-            except Exception as e:
-                logger.error(f"Failed to save user transcript: {e}")
+                logger.info(f"Transcript saved [{role}]: {text[:80]}")
+        except Exception as e:
+            logger.error(f"Failed to save transcript: {e}")
 
     # Start the session
     await session.start(
