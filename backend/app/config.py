@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     LIVEKIT_TRUNK_ID: str = ""
     CARTESIA_API_KEY: str = ""
 
+    # Clerk Auth
+    CLERK_SECRET_KEY: str = ""
+    CLERK_PUBLISHABLE_KEY: str = ""
+
     # Knowledge Base / RAG
     PINECONE_API_KEY: str = ""
     EMBEDDING_MODEL: str = "text-embedding-3-small"

@@ -1,9 +1,10 @@
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Scope, Receive, Send
 import logging
 import traceback
 
+from app.auth import get_current_user
 from app.routers import agents, calls, system_prompts, custom_functions, knowledge_bases, phone_numbers, livekit, chat_conversations
 
 logging.basicConfig(
@@ -63,14 +64,16 @@ class CORSMiddleware:
 
 app.add_middleware(CORSMiddleware)
 
-app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
-app.include_router(calls.router, prefix="/api/calls", tags=["calls"])
-app.include_router(system_prompts.router, prefix="/api/system-prompts", tags=["system-prompts"])
-app.include_router(custom_functions.router, prefix="/api/custom-functions", tags=["custom-functions"])
-app.include_router(knowledge_bases.router, prefix="/api/knowledge-bases", tags=["knowledge-bases"])
-app.include_router(phone_numbers.router, prefix="/api/phone-numbers", tags=["phone-numbers"])
-app.include_router(livekit.router, prefix="/api/livekit", tags=["livekit"])
-app.include_router(chat_conversations.router, prefix="/api/chat-conversations", tags=["chat-conversations"])
+_auth = [Depends(get_current_user)]
+
+app.include_router(agents.router, prefix="/api/agents", tags=["agents"], dependencies=_auth)
+app.include_router(calls.router, prefix="/api/calls", tags=["calls"], dependencies=_auth)
+app.include_router(system_prompts.router, prefix="/api/system-prompts", tags=["system-prompts"], dependencies=_auth)
+app.include_router(custom_functions.router, prefix="/api/custom-functions", tags=["custom-functions"], dependencies=_auth)
+app.include_router(knowledge_bases.router, prefix="/api/knowledge-bases", tags=["knowledge-bases"], dependencies=_auth)
+app.include_router(phone_numbers.router, prefix="/api/phone-numbers", tags=["phone-numbers"], dependencies=_auth)
+app.include_router(livekit.router, prefix="/api/livekit", tags=["livekit"], dependencies=_auth)
+app.include_router(chat_conversations.router, prefix="/api/chat-conversations", tags=["chat-conversations"], dependencies=_auth)
 
 
 @app.exception_handler(Exception)

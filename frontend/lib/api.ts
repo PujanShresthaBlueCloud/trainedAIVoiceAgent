@@ -1,9 +1,36 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
+async function waitForClerk(): Promise<ClerkInstance | null> {
+  if (typeof window === "undefined") return null;
+  // Clerk may not be on window yet if ClerkProvider is still mounting
+  for (let i = 0; i < 20; i++) {
+    if (window.Clerk?.session) return window.Clerk;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return window.Clerk ?? null;
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const clerk = await waitForClerk();
+    if (clerk?.session) {
+      const token = await clerk.session.getToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+  } catch {
+    // silently ignore if token fetch fails
+  }
+  return headers;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const authHeaders = await getAuthHeaders();
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
+    headers: { ...authHeaders, ...options?.headers },
   });
   if (!res.ok) {
     const text = await res.text();
@@ -68,10 +95,23 @@ export const api = {
   // Knowledge Base Files
   listKBFiles: (kbId: string) => request<any[]>(`/api/knowledge-bases/${kbId}/files`),
   uploadKBFile: async (kbId: string, file: File) => {
+    const headers: Record<string, string> = {};
+    try {
+      const clerk = await waitForClerk();
+      if (clerk?.session) {
+        const token = await clerk.session.getToken();
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+      }
+    } catch {
+      // silently ignore
+    }
     const formData = new FormData();
     formData.append("file", file);
     const res = await fetch(`${API_URL}/api/knowledge-bases/${kbId}/files`, {
       method: "POST",
+      headers,
       body: formData,
     });
     if (!res.ok) {

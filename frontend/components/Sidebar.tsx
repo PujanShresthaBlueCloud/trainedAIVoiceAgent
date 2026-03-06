@@ -20,6 +20,8 @@ import {
   Megaphone,
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
+import { UserButton, useClerk, useUser } from "@clerk/nextjs";
+import { LogOut } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -66,6 +68,29 @@ const sections: NavSection[] = [
     ],
   },
 ];
+
+function UserEmail() {
+  const { user } = useUser();
+  if (!user) return null;
+  return (
+    <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
+      {user.primaryEmailAddress?.emailAddress}
+    </p>
+  );
+}
+
+function SignOutButton() {
+  const { signOut } = useClerk();
+  return (
+    <button
+      onClick={() => signOut({ redirectUrl: "/sign-in" })}
+      className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-800/60 transition-colors flex-shrink-0"
+      title="Sign out"
+    >
+      <LogOut className="w-4 h-4" />
+    </button>
+  );
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -144,8 +169,12 @@ export default function Sidebar() {
           <Megaphone className="w-4 h-4" />
           Updates
         </button>
-        <div className="px-3 pt-2">
-          <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">user@trainedlogic.com</p>
+        <div className="px-3 pt-2 flex items-center gap-2 justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <UserButton afterSignOutUrl="/sign-in" />
+            <UserEmail />
+          </div>
+          <SignOutButton />
         </div>
       </div>
     </aside>
