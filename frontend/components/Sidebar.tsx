@@ -54,17 +54,8 @@ const sections: NavSection[] = [
     label: "MONITOR",
     items: [
       { href: "/calls", label: "Call History", icon: Phone },
-      { href: "/chat-history", label: "Chat History", icon: MessageSquare },
       { href: "/analytics", label: "Analytics", icon: BarChart3 },
-      { href: "/quality-assurance", label: "AI Quality Assurance", icon: ShieldCheck },
       { href: "/alerting", label: "Alerting", icon: Bell, badge: "New" },
-    ],
-  },
-  {
-    label: "SYSTEM",
-    items: [
-      { href: "/settings", label: "Settings", icon: Settings },
-      { href: "/billing", label: "Pay As You Go", icon: CreditCard },
     ],
   },
 ];

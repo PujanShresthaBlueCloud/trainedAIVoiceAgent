@@ -203,7 +203,7 @@ export default function CallsPage() {
               ) : (
                 transcript.map((entry) => (
                   <div key={entry.id} className={`flex ${entry.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[80%] rounded-lg px-4 py-2 ${entry.role === "user" ? "bg-indigo-600/30 text-indigo-200" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200"}`}>
+                    <div className={`max-w-[80%] rounded-lg px-4 py-2 ${entry.role === "user" ? "bg-indigo-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200"}`}>
                       <p className="text-xs font-medium mb-1 opacity-70">{entry.role === "user" ? "User" : "AI"}</p>
                       <p className="text-sm">{entry.content}</p>
                     </div>
