@@ -40,7 +40,20 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 50
     RAG_TOP_K: int = 5
 
+    # Security & Compliance
+    ALLOWED_ORIGINS: str = ""  # Comma-separated allowed origins, empty = use APP_ENV logic
+    APP_ENV: str = "development"  # development | staging | production
+    DATA_RETENTION_DAYS: int = 365
+    RATE_LIMIT_PER_MINUTE: int = 60
+    AUDIT_LOG_ENABLED: bool = True
+
     model_config = {"env_file": str(_ENV_FILE), "extra": "ignore"}
+
+    def get_allowed_origins(self) -> list[str]:
+        """Return parsed list of allowed origins."""
+        if self.ALLOWED_ORIGINS:
+            return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
+        return []
 
 
 settings = Settings()

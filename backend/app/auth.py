@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -12,6 +13,8 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _jwks_cache: dict[str, Any] | None = None
+_jwks_cache_time: float = 0.0
+_JWKS_CACHE_TTL = 6 * 3600  # 6 hours
 
 
 def _get_clerk_frontend_api() -> str:
@@ -35,8 +38,8 @@ def _get_clerk_frontend_api() -> str:
 
 
 async def _fetch_jwks() -> dict[str, Any]:
-    global _jwks_cache
-    if _jwks_cache is not None:
+    global _jwks_cache, _jwks_cache_time
+    if _jwks_cache is not None and (time.time() - _jwks_cache_time) < _JWKS_CACHE_TTL:
         return _jwks_cache
 
     domain = _get_clerk_frontend_api()
@@ -47,6 +50,7 @@ async def _fetch_jwks() -> dict[str, Any]:
         resp = await client.get(jwks_url, timeout=10)
         resp.raise_for_status()
         _jwks_cache = resp.json()
+        _jwks_cache_time = time.time()
         return _jwks_cache
 
 
@@ -72,8 +76,9 @@ async def get_current_user(request: Request) -> dict[str, Any]:
 
         if signing_key is None:
             # Invalidate cache and retry once
-            global _jwks_cache
+            global _jwks_cache, _jwks_cache_time
             _jwks_cache = None
+            _jwks_cache_time = 0.0
             jwks_data = await _fetch_jwks()
             for key in jwks_data.get("keys", []):
                 if key.get("kid") == kid:
@@ -88,6 +93,7 @@ async def get_current_user(request: Request) -> dict[str, Any]:
             signing_key,
             algorithms=["RS256"],
             options={"verify_aud": False},
+            leeway=30,  # 30s clock skew tolerance
         )
 
         return {

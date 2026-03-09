@@ -212,9 +212,23 @@ async def entrypoint(ctx: agents.JobContext):
     agent_config = agent_result.data[0]
     logger.info(f"Starting voice session: agent={agent_config['name']}, call={call_id}")
 
-    # Update call status
+    # Update call status and record consent entry
     if call_id:
         db.table("calls").update({"status": "in-progress"}).eq("id", call_id).execute()
+
+        # Record implicit consent for call recording
+        try:
+            call_data = db.table("calls").select("caller_number").eq("id", call_id).execute()
+            caller_number = call_data.data[0].get("caller_number", "") if call_data.data else ""
+            db.table("consent_records").insert({
+                "call_id": call_id,
+                "caller_number": caller_number,
+                "consent_type": "call_recording",
+                "consent_given": True,
+                "consent_method": "implicit_continued_participation",
+            }).execute()
+        except Exception as e:
+            logger.error(f"Failed to record consent: {e}")
 
     # Build pipeline components
     stt = _build_stt(agent_config)

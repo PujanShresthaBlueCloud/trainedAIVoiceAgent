@@ -156,4 +156,28 @@ export const api = {
 
   // Diagnostics
   getDiagnostics: () => request<any>("/api/diagnostics"),
+
+  // Compliance
+  getComplianceStatus: () => request<any>("/api/compliance/status"),
+  getAuditLogs: (limit: number = 50) =>
+    request<any[]>(`/api/compliance/audit-logs?limit=${limit}`),
+  requestDataExport: (phoneNumber: string) =>
+    request<any>("/api/compliance/data-export", {
+      method: "POST",
+      body: JSON.stringify({ phone_number: phoneNumber }),
+    }),
+  requestDataDeletion: (phoneNumber: string) =>
+    request<any>("/api/compliance/data-deletion", {
+      method: "POST",
+      body: JSON.stringify({ phone_number: phoneNumber }),
+    }),
+  recordConsent: (data: { call_id: string; caller_number: string; consent_given: boolean }) =>
+    request<any>("/api/compliance/consent", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  getConsent: (callId: string) =>
+    request<any>(`/api/compliance/consent/${callId}`),
+  triggerRetentionCleanup: () =>
+    request<any>("/api/compliance/retention/cleanup", { method: "POST" }),
 };

@@ -167,4 +167,43 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 
 CREATE INDEX IF NOT EXISTS idx_chat_conversations_agent ON chat_conversations(agent_id);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conversation_id);
+
+-- Compliance: retention and PII tracking columns on calls
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS retention_expires_at TIMESTAMPTZ;
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS pii_redacted BOOLEAN DEFAULT false;
+
+-- Compliance: audit logs
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    timestamp TIMESTAMPTZ DEFAULT now(),
+    user_id TEXT,
+    user_email TEXT,
+    action TEXT NOT NULL,
+    resource_type TEXT,
+    resource_id TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    request_method TEXT,
+    request_path TEXT,
+    status_code INTEGER,
+    details TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+
+-- Compliance: consent records
+CREATE TABLE IF NOT EXISTS consent_records (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    call_id UUID REFERENCES calls(id) ON DELETE CASCADE,
+    caller_number TEXT,
+    consent_type TEXT NOT NULL DEFAULT 'call_recording',
+    consent_given BOOLEAN NOT NULL DEFAULT false,
+    consent_method TEXT DEFAULT 'verbal',
+    recorded_at TIMESTAMPTZ DEFAULT now(),
+    expires_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_consent_records_call_id ON consent_records(call_id);
 """

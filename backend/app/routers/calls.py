@@ -1,8 +1,16 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.database import get_supabase
+from app.pii import mask_phone_number
 
 router = APIRouter()
+
+
+def _mask_call(call: dict) -> dict:
+    """Mask PII fields in a call record before returning."""
+    if call.get("caller_number"):
+        call["caller_number"] = mask_phone_number(call["caller_number"])
+    return call
 
 
 class OutboundCallRequest(BaseModel):
@@ -20,7 +28,7 @@ async def list_calls():
         .limit(100)
         .execute()
     )
-    return result.data
+    return [_mask_call(c) for c in result.data]
 
 
 @router.get("/{call_id}")
@@ -29,7 +37,7 @@ async def get_call(call_id: str):
     result = db.table("calls").select("*, agents(name)").eq("id", call_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Call not found")
-    return result.data[0]
+    return _mask_call(result.data[0])
 
 
 @router.get("/{call_id}/transcript")

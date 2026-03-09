@@ -58,6 +58,12 @@ const sections: NavSection[] = [
       { href: "/alerting", label: "Alerting", icon: Bell, badge: "New" },
     ],
   },
+  {
+    label: "COMPLIANCE",
+    items: [
+      { href: "/compliance", label: "Compliance", icon: ShieldCheck },
+    ],
+  },
 ];
 
 function UserEmail() {
