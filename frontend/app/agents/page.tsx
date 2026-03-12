@@ -3,7 +3,6 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Agent, CustomFunction, KnowledgeBase } from "@/types";
-import TestCallSection from "@/components/TestCallSection";
 import Link from "next/link";
 import {
   Bot,
@@ -49,7 +48,6 @@ export default function AgentsPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Agent | null>(null);
-  const [testAgent, setTestAgent] = useState<Agent | null>(null);
   const [customFunctions, setCustomFunctions] = useState<CustomFunction[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -326,19 +324,6 @@ export default function AgentsPage() {
           </div>
         </div>
 
-        {/* Test Call Section */}
-        {testAgent && (
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
-            <TestCallSection agentId={testAgent.id} agentName={testAgent.name} />
-            <button
-              onClick={() => setTestAgent(null)}
-              className="mt-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-            >
-              Close test call
-            </button>
-          </div>
-        )}
-
         {/* Table */}
         <div className="flex-1 overflow-auto">
           <table className="w-full">
@@ -412,13 +397,6 @@ export default function AgentsPage() {
                     </td>
                     <td className="px-6 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setTestAgent(agent)}
-                          className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-600/10 text-gray-400 hover:text-green-600 dark:hover:text-green-400 transition-colors"
-                          title="Test Call"
-                        >
-                          <Phone className="w-4 h-4" />
-                        </button>
                         <button
                           onClick={() => openEdit(agent)}
                           className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
