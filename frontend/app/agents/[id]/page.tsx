@@ -949,6 +949,19 @@ export default function AgentDetailPage() {
   const [dynamicMessage, setDynamicMessage] = useState(false);
   const [cartesiaVoiceId, setCartesiaVoiceId] = useState("");
 
+  // Post-call data extraction
+  interface ExtractionField { name: string; description: string; type: string; }
+  const [extractionEnabled, setExtractionEnabled] = useState(false);
+  const [extractionFields, setExtractionFields] = useState<ExtractionField[]>([]);
+  const [extractionWebhook, setExtractionWebhook] = useState("");
+
+  // Speech synthesis settings
+  const [ttsSpeed, setTtsSpeed] = useState("normal");
+  const [ttsEmotion, setTtsEmotion] = useState<string[]>([]);
+  const [allowInterruptions, setAllowInterruptions] = useState(true);
+  const [minEndpointingDelay, setMinEndpointingDelay] = useState(0.3);
+  const [maxEndpointingDelay, setMaxEndpointingDelay] = useState(1.5);
+
   // Dirty tracking — snapshot of last-saved form values
   const [savedSnapshot, setSavedSnapshot] = useState<string>("");
   const currentSnapshot = useMemo(
@@ -968,11 +981,21 @@ export default function AgentDetailPage() {
         aiSpeaksFirst,
         dynamicMessage,
         cartesiaVoiceId,
+        ttsSpeed,
+        ttsEmotion,
+        allowInterruptions,
+        minEndpointingDelay,
+        maxEndpointingDelay,
+        extractionEnabled,
+        extractionFields,
+        extractionWebhook,
       }),
     [
       name, description, systemPrompt, voiceId, language, llmModel,
       toolsEnabled, isActive, knowledgeBaseId, welcomeMessage,
       pauseBeforeSpeaking, aiSpeaksFirst, dynamicMessage, cartesiaVoiceId,
+      ttsSpeed, ttsEmotion, allowInterruptions, minEndpointingDelay, maxEndpointingDelay,
+      extractionEnabled, extractionFields, extractionWebhook,
     ]
   );
   const isDirty = savedSnapshot !== "" && currentSnapshot !== savedSnapshot;
@@ -1013,6 +1036,15 @@ export default function AgentDetailPage() {
     setAiSpeaksFirst(meta.ai_speaks_first ?? false);
     setDynamicMessage(meta.dynamic_message ?? false);
     setCartesiaVoiceId(meta.cartesia_voice_id || "");
+    setTtsSpeed(meta.tts_speed || "normal");
+    setTtsEmotion(meta.tts_emotion || []);
+    setAllowInterruptions(meta.allow_interruptions ?? true);
+    setMinEndpointingDelay(meta.min_endpointing_delay ?? 0.3);
+    setMaxEndpointingDelay(meta.max_endpointing_delay ?? 1.5);
+    const exc = meta.post_call_extraction || {};
+    setExtractionEnabled(exc.enabled ?? false);
+    setExtractionFields(exc.fields || []);
+    setExtractionWebhook(exc.webhook_url || "");
   }, []);
 
   const snapshotForm = useCallback((data: Agent) => {
@@ -1033,6 +1065,14 @@ export default function AgentDetailPage() {
         aiSpeaksFirst: meta.ai_speaks_first ?? false,
         dynamicMessage: meta.dynamic_message ?? false,
         cartesiaVoiceId: meta.cartesia_voice_id || "",
+        ttsSpeed: meta.tts_speed || "normal",
+        ttsEmotion: meta.tts_emotion || [],
+        allowInterruptions: meta.allow_interruptions ?? true,
+        minEndpointingDelay: meta.min_endpointing_delay ?? 0.3,
+        maxEndpointingDelay: meta.max_endpointing_delay ?? 1.5,
+        extractionEnabled: (meta.post_call_extraction || {}).enabled ?? false,
+        extractionFields: (meta.post_call_extraction || {}).fields || [],
+        extractionWebhook: (meta.post_call_extraction || {}).webhook_url || "",
       })
     );
   }, []);
@@ -1125,6 +1165,16 @@ export default function AgentDetailPage() {
           ai_speaks_first: aiSpeaksFirst,
           dynamic_message: dynamicMessage,
           cartesia_voice_id: cartesiaVoiceId.trim() || undefined,
+          tts_speed: ttsSpeed,
+          tts_emotion: ttsEmotion.length > 0 ? ttsEmotion : undefined,
+          allow_interruptions: allowInterruptions,
+          min_endpointing_delay: minEndpointingDelay,
+          max_endpointing_delay: maxEndpointingDelay,
+          post_call_extraction: {
+            enabled: extractionEnabled,
+            fields: extractionFields.filter((f) => f.name.trim()),
+            webhook_url: extractionWebhook.trim() || undefined,
+          },
         },
       };
       await api.updateAgent(agentId, payload);
@@ -1704,7 +1754,121 @@ export default function AgentDetailPage() {
               </div>
             </CollapsibleSection>
 
-            {/* 3. Functions */}
+            {/* 3. Speech Settings */}
+            <CollapsibleSection title="Speech Settings" defaultOpen>
+              {/* Speaking Speed */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Speaking Speed
+                </label>
+                <select
+                  value={ttsSpeed}
+                  onChange={(e) => setTtsSpeed(e.target.value)}
+                  className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                >
+                  <option value="slowest">Slowest</option>
+                  <option value="slow">Slow</option>
+                  <option value="normal">Normal</option>
+                  <option value="fast">Fast</option>
+                  <option value="fastest">Fastest</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1">Controls how fast the agent speaks (Cartesia TTS).</p>
+              </div>
+
+              {/* Emotion */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Voice Emotion
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: "positivity:high", label: "Positive (High)" },
+                    { value: "positivity:low", label: "Positive (Low)" },
+                    { value: "curiosity", label: "Curious" },
+                    { value: "surprise:high", label: "Surprised" },
+                    { value: "sadness:low", label: "Calm/Sad" },
+                    { value: "anger:low", label: "Assertive" },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() =>
+                        setTtsEmotion((prev) =>
+                          prev.includes(value)
+                            ? prev.filter((e) => e !== value)
+                            : [...prev, value]
+                        )
+                      }
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        ttsEmotion.includes(value)
+                          ? "bg-indigo-600 text-white"
+                          : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Select one or more emotions to blend into the voice.</p>
+              </div>
+
+              {/* Allow Interruptions */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Allow Interruptions</p>
+                  <p className="text-xs text-gray-400">Caller can interrupt the agent while it's speaking</p>
+                </div>
+                <ToggleSwitch
+                  checked={allowInterruptions}
+                  onChange={setAllowInterruptions}
+                  label="Allow Interruptions"
+                />
+              </div>
+
+              {/* Endpointing Delays */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Min Endpointing Delay: {minEndpointingDelay.toFixed(1)}s
+                  </label>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1.0"
+                    step="0.1"
+                    value={minEndpointingDelay}
+                    onChange={(e) => setMinEndpointingDelay(parseFloat(e.target.value))}
+                    className="w-full accent-indigo-600"
+                  />
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>0.1s</span>
+                    <span>1.0s</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">Minimum pause before agent responds.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Max Endpointing Delay: {maxEndpointingDelay.toFixed(1)}s
+                  </label>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="3.0"
+                    step="0.1"
+                    value={maxEndpointingDelay}
+                    onChange={(e) => setMaxEndpointingDelay(parseFloat(e.target.value))}
+                    className="w-full accent-indigo-600"
+                  />
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>0.5s</span>
+                    <span>3.0s</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">Maximum wait before cutting off silence.</p>
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            {/* 4. Functions */}
             <CollapsibleSection title="Functions" defaultOpen>
               {/* Built-in Tools */}
               <div>
@@ -1887,10 +2051,6 @@ export default function AgentDetailPage() {
             </CollapsibleSection>
 
             {/* 5-11. Placeholder sections */}
-            <CollapsibleSection title="Speech Settings">
-              <PlaceholderSection label="Configure speech synthesis settings" />
-            </CollapsibleSection>
-
             <CollapsibleSection title="Realtime Transcription Settings">
               <PlaceholderSection label="Configure realtime transcription" />
             </CollapsibleSection>
@@ -1900,7 +2060,129 @@ export default function AgentDetailPage() {
             </CollapsibleSection>
 
             <CollapsibleSection title="Post-Call Data Extraction">
-              <PlaceholderSection label="Configure post-call data extraction" />
+              {/* Enable toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Extraction</p>
+                  <p className="text-xs text-gray-400">After each call, automatically extract structured data from the transcript using AI</p>
+                </div>
+                <ToggleSwitch
+                  checked={extractionEnabled}
+                  onChange={setExtractionEnabled}
+                  label="Enable Extraction"
+                />
+              </div>
+
+              {extractionEnabled && (
+                <>
+                  {/* Field list */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Fields to Extract
+                    </label>
+                    <div className="space-y-2">
+                      {extractionFields.map((field, idx) => (
+                        <div key={idx} className="flex items-start gap-2">
+                          <input
+                            type="text"
+                            value={field.name}
+                            onChange={(e) => {
+                              const next = [...extractionFields];
+                              next[idx] = { ...next[idx], name: e.target.value };
+                              setExtractionFields(next);
+                            }}
+                            placeholder="field_name"
+                            className="w-32 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-900 dark:text-white font-mono focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                          <select
+                            value={field.type}
+                            onChange={(e) => {
+                              const next = [...extractionFields];
+                              next[idx] = { ...next[idx], type: e.target.value };
+                              setExtractionFields(next);
+                            }}
+                            className="w-24 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                          >
+                            <option value="string">string</option>
+                            <option value="boolean">boolean</option>
+                            <option value="number">number</option>
+                          </select>
+                          <input
+                            type="text"
+                            value={field.description}
+                            onChange={(e) => {
+                              const next = [...extractionFields];
+                              next[idx] = { ...next[idx], description: e.target.value };
+                              setExtractionFields(next);
+                            }}
+                            placeholder="Description of what to extract"
+                            className="flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setExtractionFields((prev) => prev.filter((_, i) => i !== idx))}
+                            className="p-1 text-gray-400 hover:text-red-500 transition-colors mt-0.5"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Preset templates */}
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {[
+                        { name: "customer_name", description: "Full name of the customer", type: "string" },
+                        { name: "customer_email", description: "Email address of the customer", type: "string" },
+                        { name: "appointment_booked", description: "Whether an appointment was scheduled", type: "boolean" },
+                        { name: "call_outcome", description: "Brief summary of what was resolved or agreed upon", type: "string" },
+                        { name: "sentiment", description: "Overall caller sentiment: positive, neutral, or negative", type: "string" },
+                        { name: "follow_up_required", description: "Whether a follow-up action is needed", type: "boolean" },
+                      ].map((preset) => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => {
+                            if (!extractionFields.find((f) => f.name === preset.name)) {
+                              setExtractionFields((prev) => [...prev, preset]);
+                            }
+                          }}
+                          disabled={!!extractionFields.find((f) => f.name === preset.name)}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          + {preset.name}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setExtractionFields((prev) => [...prev, { name: "", description: "", type: "string" }])}
+                      className="mt-2 flex items-center gap-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add custom field
+                    </button>
+                  </div>
+
+                  {/* Webhook */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Webhook URL <span className="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={extractionWebhook}
+                      onChange={(e) => setExtractionWebhook(e.target.value)}
+                      placeholder="https://your-server.com/webhook/post-call"
+                      className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none font-mono text-xs"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      Extracted data will be POSTed as JSON to this URL after each call.
+                    </p>
+                  </div>
+                </>
+              )}
             </CollapsibleSection>
 
             <CollapsibleSection title="Security & Fallback Settings">

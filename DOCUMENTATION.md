@@ -1,6 +1,6 @@
 # Voice AI Platform — Complete Documentation
 
-> A full-stack voice AI platform with LiveKit real-time voice calls (Deepgram STT → Multi-LLM → Cartesia TTS), streaming AI chat, custom webhook functions, integration templates, and RAG-powered knowledge bases.
+> A full-stack voice AI platform with LiveKit real-time voice calls (Deepgram STT → Multi-LLM → Cartesia TTS), streaming AI chat, custom webhook functions, integration templates, RAG-powered knowledge bases, configurable speech synthesis, and automated post-call data extraction.
 
 ---
 
@@ -11,13 +11,15 @@
 3. [Voice Pipeline Architecture](#voice-pipeline-architecture)
 4. [AI Chat Architecture](#ai-chat-architecture)
 5. [Agent Configuration](#agent-configuration)
-6. [Custom Functions & Integrations](#custom-functions--integrations)
-7. [Knowledge Base (RAG)](#knowledge-base-rag)
-8. [LLM Provider Configuration](#llm-provider-configuration)
-9. [API Endpoints Reference](#api-endpoints-reference)
-10. [Frontend Pages & Components](#frontend-pages--components)
-11. [Important Files Guide](#important-files-guide)
-12. [Monitoring & Debugging](#monitoring--debugging)
+6. [Speech Settings](#speech-settings)
+7. [Post-Call Data Extraction](#post-call-data-extraction)
+8. [Custom Functions & Integrations](#custom-functions--integrations)
+9. [Knowledge Base (RAG)](#knowledge-base-rag)
+10. [LLM Provider Configuration](#llm-provider-configuration)
+11. [API Endpoints Reference](#api-endpoints-reference)
+12. [Frontend Pages & Components](#frontend-pages--components)
+13. [Important Files Guide](#important-files-guide)
+14. [Monitoring & Debugging](#monitoring--debugging)
 
 ---
 
@@ -180,14 +182,16 @@ User Speaker (WebRTC)
 
 ### Low-Latency Settings
 
-| Setting | Value | Effect |
-|---------|-------|--------|
-| `min_endpointing_delay` | 0.3s | Start LLM after 300ms of silence |
-| `max_endpointing_delay` | 1.5s | Cap wait time at 1.5s |
-| `preemptive_generation` | True | Start generating before user fully finishes |
-| `allow_interruptions` | True | User can interrupt agent mid-speech |
-| `endpointing_ms` (Deepgram) | 100 | Detect end-of-speech in 100ms |
-| `no_delay` (Deepgram) | True | Disable internal buffering |
+These defaults are used when no per-agent overrides are configured. All values marked **configurable** can be set per-agent via the Speech Settings section.
+
+| Setting | Default | Configurable | Effect |
+|---------|---------|--------------|--------|
+| `min_endpointing_delay` | 0.3s | Yes | Start LLM after this silence duration |
+| `max_endpointing_delay` | 1.5s | Yes | Cap wait time before cutting off silence |
+| `preemptive_generation` | True | No | Start generating before user fully finishes |
+| `allow_interruptions` | True | Yes | User can interrupt agent mid-speech |
+| `endpointing_ms` (Deepgram) | 100 | No | Detect end-of-speech in 100ms |
+| `no_delay` (Deepgram) | True | No | Disable internal buffering |
 
 ### Welcome Message
 
@@ -285,6 +289,12 @@ The `getClient(model)` function routes based on model name:
 | `cartesia_voice_id` | string | Cartesia voice UUID for TTS in voice calls |
 | `folder` | string | Organization folder |
 | `agent_type` | string | "Single Prompt" or "Multi Prompt" |
+| `tts_speed` | string | Speaking speed: `slowest`, `slow`, `normal`, `fast`, `fastest` |
+| `tts_emotion` | string[] | Cartesia emotion tags e.g. `["positivity:high", "curiosity"]` |
+| `allow_interruptions` | boolean | Whether callers can interrupt the agent (default: true) |
+| `min_endpointing_delay` | number | Minimum seconds before responding (default: 0.3) |
+| `max_endpointing_delay` | number | Maximum silence wait in seconds (default: 1.5) |
+| `post_call_extraction` | object | Post-call data extraction config (see [Post-Call Data Extraction](#post-call-data-extraction)) |
 
 ### Voice ID Configuration
 
@@ -296,6 +306,131 @@ The platform uses **two separate TTS providers**:
 | **ElevenLabs** | Legacy/alternative | `voice_id` (top-level field) |
 
 To set a consistent voice for calls, set the Cartesia voice ID in the agent's metadata. Browse voices at [play.cartesia.ai](https://play.cartesia.ai).
+
+---
+
+## Speech Settings
+
+Configurable per-agent via the **Speech Settings** section on the agent detail page. Settings are stored in `agent.metadata` and applied at session start.
+
+### Speaking Speed
+
+Controls how fast Cartesia TTS speaks. Maps to Cartesia's `speed` parameter.
+
+| Value | Description |
+|-------|-------------|
+| `slowest` | Very slow, deliberate speech |
+| `slow` | Slightly slower than normal |
+| `normal` | Default speaking pace |
+| `fast` | Faster than normal |
+| `fastest` | Maximum speed |
+
+### Voice Emotion
+
+Blend one or more emotional qualities into the voice. Maps to Cartesia's `emotion` parameter. Multiple emotions can be combined.
+
+| Tag | Effect |
+|-----|--------|
+| `positivity:high` | Upbeat, enthusiastic tone |
+| `positivity:low` | Mild positivity |
+| `curiosity` | Inquisitive, engaged |
+| `surprise:high` | Surprised, animated |
+| `sadness:low` | Calm, slightly subdued |
+| `anger:low` | Assertive, direct |
+
+### Interruptions & Endpointing
+
+| Setting | Range | Default | Description |
+|---------|-------|---------|-------------|
+| Allow Interruptions | on/off | on | Whether the caller can cut off the agent mid-speech |
+| Min Endpointing Delay | 0.1–1.0s | 0.3s | Minimum silence before the agent starts responding |
+| Max Endpointing Delay | 0.5–3.0s | 1.5s | Maximum silence wait before cutting off |
+
+**Tuning tips:**
+- Increase `min_endpointing_delay` to reduce premature responses when callers pause mid-sentence.
+- Decrease `max_endpointing_delay` for faster back-and-forth; increase it for callers who speak slowly.
+- Disable interruptions for use-cases where the agent must complete announcements (e.g. IVR menus).
+
+---
+
+## Post-Call Data Extraction
+
+Automatically extract structured data from the call transcript after each call ends, using an LLM. Results are stored in `calls.metadata.extracted_data` and optionally POSTed to a webhook.
+
+### How It Works
+
+1. Call ends — participant disconnects from the LiveKit room
+2. Agent worker loads the full transcript from Supabase
+3. An LLM prompt is built with the transcript and the configured field definitions
+4. **GPT-4o-mini** extracts the fields as a JSON object (`temperature=0`, `response_format: json_object`)
+5. Extracted data is saved to `calls.metadata.extracted_data`
+6. If a webhook URL is configured, the data is POSTed as JSON
+
+### Configuration (`metadata.post_call_extraction`)
+
+```json
+{
+  "enabled": true,
+  "fields": [
+    { "name": "customer_name", "description": "Full name of the customer", "type": "string" },
+    { "name": "appointment_booked", "description": "Whether an appointment was scheduled", "type": "boolean" },
+    { "name": "sentiment", "description": "Overall caller sentiment: positive, neutral, or negative", "type": "string" }
+  ],
+  "webhook_url": "https://your-server.com/webhook/post-call"
+}
+```
+
+### Field Types
+
+| Type | Description |
+|------|-------------|
+| `string` | Free-text value |
+| `boolean` | `true` / `false` |
+| `number` | Numeric value |
+
+If a field cannot be determined from the transcript, it is returned as `null`.
+
+### Built-in Field Presets
+
+The UI provides one-click preset fields:
+
+| Preset | Type | Description |
+|--------|------|-------------|
+| `customer_name` | string | Full name of the customer |
+| `customer_email` | string | Email address of the customer |
+| `appointment_booked` | boolean | Whether an appointment was scheduled |
+| `call_outcome` | string | Brief summary of what was resolved or agreed upon |
+| `sentiment` | string | Overall caller sentiment |
+| `follow_up_required` | boolean | Whether a follow-up action is needed |
+
+### Webhook Payload
+
+When a webhook URL is configured, the following JSON is POSTed after each call:
+
+```json
+{
+  "call_id": "uuid",
+  "extracted_data": {
+    "customer_name": "Jane Smith",
+    "appointment_booked": true,
+    "sentiment": "positive"
+  }
+}
+```
+
+### Querying Extracted Data
+
+```sql
+-- View extracted data for recent calls
+SELECT id, started_at, metadata->'extracted_data' AS extracted
+FROM calls
+WHERE metadata->'extracted_data' IS NOT NULL
+ORDER BY started_at DESC;
+
+-- Filter calls where an appointment was booked
+SELECT * FROM calls
+WHERE metadata->'extracted_data'->>'appointment_booked' = 'true';
+```
 
 ---
 
@@ -540,10 +675,12 @@ data: [DONE]
 The main configuration page with collapsible sections:
 
 1. **Model & Voice** — LLM model, language, Cartesia voice ID, ElevenLabs voice ID
-2. **Prompt** — System prompt, welcome message, AI speaks first toggle, pause slider
-3. **Functions** — Built-in tools, integration templates, connected functions (with Test/Edit/Remove), available functions
-4. **Knowledge Base** — Select connected knowledge base
-5. **Advanced** — Agent type, folder, active toggle
+2. **Prompt** — System prompt, welcome message, AI speaks first toggle, dynamic message, pause slider
+3. **Speech Settings** — Speaking speed, voice emotion, allow interruptions, min/max endpointing delay
+4. **Post-Call Data Extraction** — Enable toggle, field builder (name/type/description), preset field chips, optional webhook URL
+5. **Functions** — Built-in tools, integration templates, connected functions (with Test/Edit/Remove), available functions
+6. **Knowledge Base** — Select connected knowledge base
+7. **Advanced** — Agent type, folder, active toggle
 
 Right panel has two tabs:
 - **Audio** — Test voice call with VoiceCallButton + call history
@@ -570,10 +707,11 @@ Grid view with create/edit modal, JSON Schema editor, webhook test button.
 The LiveKit agent worker. Key functions:
 - `_build_stt()` — Deepgram STT with low-latency settings
 - `_build_llm()` — Multi-provider LLM with temperature config
-- `_build_tts()` — Cartesia TTS with voice from agent metadata
+- `_build_tts()` — Cartesia TTS with voice, speed, and emotion from agent metadata
 - `_load_custom_functions()` — Batch-loads custom function defs in single DB query
 - `_build_agent()` — Creates Agent class with registered tools
-- `entrypoint()` — Main session lifecycle: connect → build pipeline → start session → welcome message → monitor disconnect
+- `_run_post_call_extraction()` — After call ends: loads transcript, calls GPT-4o-mini to extract configured fields, saves to `calls.metadata.extracted_data`, optionally POSTs to webhook
+- `entrypoint()` — Main session lifecycle: connect → build pipeline → apply speech settings → start session → welcome message → monitor disconnect → run post-call extraction
 
 ### `frontend/app/api/chat/route.ts` — Chat API (Critical)
 
@@ -631,8 +769,12 @@ The backend logs to stdout. Key messages:
 ```
 INFO:  Starting voice session: agent=AgentName, call=uuid
 INFO:  Session ended: call=uuid, duration=45s
+INFO:  Post-call extraction for uuid: {"customer_name": "Jane", ...}
+INFO:  Post-call extraction webhook sent for uuid
 ERROR: Failed to load RAG context: ...
 ERROR: Tool execution error: function_name: ...
+ERROR: Post-call extraction: LLM call failed for uuid: ...
+ERROR: Post-call extraction: webhook failed for uuid: ...
 ```
 
 ### Supabase Monitoring

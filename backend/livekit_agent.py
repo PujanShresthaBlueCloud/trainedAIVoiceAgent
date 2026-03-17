@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import time
+import aiohttp
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
@@ -78,12 +79,23 @@ def _build_tts(agent_config: dict) -> cartesia.TTS:
     metadata = agent_config.get("metadata") or {}
     cartesia_voice = metadata.get("cartesia_voice_id")
 
-    return cartesia.TTS(
-        model="sonic-3",
-        language=language[:2] if language else "en",
-        api_key=settings.CARTESIA_API_KEY,
-        **({"voice": cartesia_voice} if cartesia_voice else {}),
-    )
+    # Speech synthesis settings
+    tts_speed = metadata.get("tts_speed", "normal")
+    tts_emotion = metadata.get("tts_emotion")  # e.g. ["positivity:high", "curiosity"]
+
+    tts_kwargs: dict = {
+        "model": "sonic-3",
+        "language": language[:2] if language else "en",
+        "api_key": settings.CARTESIA_API_KEY,
+    }
+    if cartesia_voice:
+        tts_kwargs["voice"] = cartesia_voice
+    if tts_speed and tts_speed != "normal":
+        tts_kwargs["speed"] = tts_speed
+    if tts_emotion and isinstance(tts_emotion, list) and tts_emotion:
+        tts_kwargs["emotion"] = tts_emotion
+
+    return cartesia.TTS(**tts_kwargs)
 
 
 def _load_rag_context(agent_config: dict) -> str:
@@ -183,6 +195,89 @@ def _build_agent(agent_config: dict, call_id: str) -> Agent:
     return VoiceAgent()
 
 
+async def _run_post_call_extraction(call_id: str, agent_config: dict, db) -> None:
+    """Extract structured data from call transcript using LLM and save to call metadata."""
+    extraction_cfg = (agent_config.get("metadata") or {}).get("post_call_extraction", {})
+    if not extraction_cfg.get("enabled"):
+        return
+
+    fields = extraction_cfg.get("fields", [])
+    if not fields:
+        return
+
+    # Load transcript
+    try:
+        transcript_result = db.table("transcript_entries") \
+            .select("role,content") \
+            .eq("call_id", call_id) \
+            .order("timestamp") \
+            .execute()
+        entries = transcript_result.data or []
+    except Exception as e:
+        logger.error(f"Post-call extraction: failed to load transcript for {call_id}: {e}")
+        return
+
+    if not entries:
+        logger.info(f"Post-call extraction: no transcript for call {call_id}, skipping")
+        return
+
+    # Build transcript text
+    transcript_text = "\n".join(
+        f"{e['role'].upper()}: {e['content']}" for e in entries
+    )
+
+    # Build field schema description
+    fields_desc = "\n".join(
+        f"- {f['name']} ({f.get('type', 'string')}): {f.get('description', '')}"
+        for f in fields
+    )
+
+    prompt = (
+        f"You are a data extraction assistant. Given the following call transcript, "
+        f"extract the requested fields and return ONLY a valid JSON object with those fields.\n\n"
+        f"Fields to extract:\n{fields_desc}\n\n"
+        f"If a field cannot be determined from the transcript, use null.\n\n"
+        f"Transcript:\n{transcript_text}\n\n"
+        f"Return only the JSON object, no explanation."
+    )
+
+    try:
+        import openai as openai_sdk
+        client = openai_sdk.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        extracted = json.loads(response.choices[0].message.content)
+        logger.info(f"Post-call extraction for {call_id}: {extracted}")
+    except Exception as e:
+        logger.error(f"Post-call extraction: LLM call failed for {call_id}: {e}")
+        return
+
+    # Save extracted data to call metadata
+    try:
+        call_result = db.table("calls").select("metadata").eq("id", call_id).execute()
+        existing_meta = (call_result.data[0].get("metadata") or {}) if call_result.data else {}
+        existing_meta["extracted_data"] = extracted
+        db.table("calls").update({"metadata": existing_meta}).eq("id", call_id).execute()
+    except Exception as e:
+        logger.error(f"Post-call extraction: failed to save results for {call_id}: {e}")
+        return
+
+    # POST to webhook if configured
+    webhook_url = extraction_cfg.get("webhook_url", "").strip()
+    if webhook_url:
+        try:
+            payload = {"call_id": call_id, "extracted_data": extracted}
+            async with aiohttp.ClientSession() as http:
+                await http.post(webhook_url, json=payload, timeout=aiohttp.ClientTimeout(total=10))
+            logger.info(f"Post-call extraction webhook sent for {call_id}")
+        except Exception as e:
+            logger.error(f"Post-call extraction: webhook failed for {call_id}: {e}")
+
+
 async def entrypoint(ctx: agents.JobContext):
     """Main entrypoint for the LiveKit agent worker."""
     await ctx.connect()
@@ -244,16 +339,22 @@ async def entrypoint(ctx: agents.JobContext):
     # Build agent with tools
     agent = _build_agent(agent_config, call_id)
 
+    # Speech session settings from agent metadata
+    agent_metadata = agent_config.get("metadata") or {}
+    allow_interruptions = agent_metadata.get("allow_interruptions", True)
+    min_endpointing_delay = float(agent_metadata.get("min_endpointing_delay", 0.3))
+    max_endpointing_delay = float(agent_metadata.get("max_endpointing_delay", 1.5))
+
     # Create and start the session with low-latency settings
     session = AgentSession(
         stt=stt,
         llm=llm,
         tts=tts,
         vad=vad,
-        min_endpointing_delay=0.3,
-        max_endpointing_delay=1.5,
+        min_endpointing_delay=min_endpointing_delay,
+        max_endpointing_delay=max_endpointing_delay,
         preemptive_generation=True,
-        allow_interruptions=True,
+        allow_interruptions=allow_interruptions,
     )
 
     started_at = time.time()
@@ -283,7 +384,6 @@ async def entrypoint(ctx: agents.JobContext):
     )
 
     # Send welcome message so the agent speaks first (reduces perceived latency)
-    agent_metadata = agent_config.get("metadata") or {}
     welcome_msg = agent_metadata.get("welcome_message", "")
     ai_speaks_first = agent_metadata.get("ai_speaks_first", True)
     if ai_speaks_first and welcome_msg:
@@ -318,6 +418,9 @@ async def entrypoint(ctx: agents.JobContext):
                 logger.error(f"Failed to update call record: {e}")
 
         logger.info(f"Session ended: call={call_id}, duration={int(time.time() - started_at)}s")
+
+        # Run post-call data extraction if configured
+        await _run_post_call_extraction(call_id, agent_config, db)
 
     # Run disconnect monitor in background
     asyncio.create_task(_monitor_disconnect())
