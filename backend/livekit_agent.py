@@ -18,8 +18,153 @@ from app.database import get_supabase
 from app.config import settings
 from app.voice.functions import execute_tool
 from app.voice.tools import get_tools_for_agent, BUILT_IN_TOOLS
+from app.services.livekit_service import transfer_sip_participant, create_sip_participant_with_headers
 
 logger = logging.getLogger(__name__)
+
+import re
+
+def _to_e164(number: str) -> str:
+    """Normalize a phone number to E.164 format (+country digits)."""
+    digits = re.sub(r"[^\d+]", "", number.strip())
+    if not digits.startswith("+"):
+        digits = "+" + digits
+    return digits
+
+
+def _find_sip_participant_identity(room) -> str | None:
+    """Find the SIP caller participant identity in the room."""
+    for identity, participant in room.remote_participants.items():
+        # SIP participants have identity starting with 'sip_' or 'phone-' or contain a phone number
+        if (identity.startswith("sip_") or identity.startswith("phone-") or
+                identity.startswith("tel:") or re.search(r"\+?\d{7,}", identity)):
+            return identity
+    # Fall back to first remote participant
+    for identity in room.remote_participants:
+        return identity
+    return None
+
+
+async def _resolve_dynamic_destination(routing_prompt: str, reason: str, transcript: str) -> str:
+    """Use LLM to resolve the transfer destination from routing rules and call context."""
+    import openai as openai_sdk
+    client = openai_sdk.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    f"You are a call routing assistant. Given routing rules and the call context, "
+                    f"return ONLY the E.164 phone number to transfer to. No explanation, just the number.\n\n"
+                    f"Routing rules:\n{routing_prompt}"
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Transfer reason: {reason}\n\nRecent conversation:\n{transcript or '(none)'}",
+            },
+        ],
+        temperature=0,
+        max_tokens=20,
+    )
+    raw = response.choices[0].message.content.strip()
+    # Extract E.164-like number from response
+    match = re.search(r"\+?\d[\d\s\-()]{6,}", raw)
+    return _to_e164(match.group(0)) if match else raw
+
+
+async def _execute_transfer(agent_ref, cid: str, reason: str, transfer_cfg: dict, db) -> str:
+    """Perform the full transfer_call flow including routing, TTS, and SIP transfer."""
+    session = agent_ref._session
+    room = agent_ref._room
+
+    # 1. Resolve destination
+    dest_type = transfer_cfg.get("destination_type", "static")
+    routing_text = transfer_cfg.get("routing_text", "")
+
+    if dest_type == "dynamic" or (routing_text and not routing_text.strip().startswith("+")):
+        # Get recent transcript for context
+        transcript = ""
+        if cid:
+            try:
+                result = db.table("transcript_entries").select("role,content") \
+                    .eq("call_id", cid).order("timestamp", desc=True).limit(10).execute()
+                entries = list(reversed(result.data or []))
+                transcript = "\n".join(f"{e['role'].upper()}: {e['content']}" for e in entries)
+            except Exception:
+                pass
+        destination = await _resolve_dynamic_destination(routing_text, reason, transcript)
+    else:
+        destination = _to_e164(routing_text) if routing_text else ""
+
+    if not destination or len(destination) < 8:
+        logger.error(f"Transfer: could not resolve destination from routing_text='{routing_text}'")
+        return json.dumps({"error": "Could not determine transfer destination"})
+
+    # 2. Talk while waiting
+    talk_msg = ""
+    if transfer_cfg.get("talk_while_waiting"):
+        talk_msg = transfer_cfg.get("talk_message", "").strip()
+    if not talk_msg:
+        talk_msg = "Please hold while I transfer your call."
+    if session:
+        await session.say(talk_msg, add_to_chat_ctx=False)
+
+    transfer_type = transfer_cfg.get("transfer_type", "cold")
+    sip_headers = {h["key"]: h["value"] for h in transfer_cfg.get("sip_headers", []) if h.get("key")}
+
+    if transfer_type == "cold":
+        # Cold transfer: move the SIP caller directly to the destination, AI exits
+        sip_identity = _find_sip_participant_identity(room) if room else None
+        if sip_identity and room:
+            try:
+                await transfer_sip_participant(room.name, sip_identity, destination)
+                logger.info(f"Cold transfer executed: {sip_identity} → {destination}")
+            except Exception as e:
+                logger.error(f"Cold transfer failed: {e}")
+                return json.dumps({"error": f"Transfer failed: {e}"})
+        else:
+            logger.warning("Cold transfer: no SIP participant found in room")
+
+    elif transfer_type in ("warm", "agentic_warm"):
+        # Warm transfer: dial human agent into room first
+        if room:
+            try:
+                await create_sip_participant_with_headers(room.name, destination, sip_headers=sip_headers)
+                logger.info(f"Warm transfer: dialled {destination} into room {room.name}")
+            except Exception as e:
+                logger.error(f"Warm transfer dial-out failed: {e}")
+                return json.dumps({"error": f"Warm transfer failed: {e}"})
+
+            # Wait briefly for agent to answer
+            wait_time = min(transfer_cfg.get("wait_time", 10), 30)
+            await asyncio.sleep(wait_time)
+
+            # Whisper debrief (spoken in room — heard by agent, caller also hears in LiveKit rooms)
+            whisper_msg = transfer_cfg.get("whisper_message", "").strip()
+            if whisper_msg and session:
+                await session.say(whisper_msg, add_to_chat_ctx=False)
+
+            # Three-way / public handoff message
+            if transfer_cfg.get("three_way_enabled"):
+                three_way_msg = transfer_cfg.get("three_way_message", "").strip()
+                if three_way_msg and session:
+                    await session.say(three_way_msg, add_to_chat_ctx=False)
+
+    # Log to DB
+    try:
+        db.table("function_call_logs").insert({
+            "call_id": cid,
+            "function_name": "transfer_call",
+            "arguments": {"to_number": destination, "reason": reason, "type": transfer_type},
+            "result": {"transferred": True},
+            "status": "completed",
+        }).execute()
+    except Exception:
+        pass
+
+    return json.dumps({"transferred": True, "to": destination, "type": transfer_type})
 
 
 def _build_stt(agent_config: dict) -> deepgram.STT:
@@ -149,6 +294,8 @@ def _build_agent(agent_config: dict, call_id: str) -> Agent:
             super().__init__(instructions=instructions)
             self._call_id = call_id
             self._agent_config = agent_config
+            self._session = None  # set after session.start()
+            self._room = None     # set after ctx.connect()
 
             # Register dynamic tools based on agent config
             for tool_name in tools_enabled:
@@ -157,6 +304,7 @@ def _build_agent(agent_config: dict, call_id: str) -> Agent:
         def _register_tool(self, tool_name: str):
             """Register a tool as a function_tool on this agent."""
             cid = self._call_id
+            agent_ref = self  # capture by reference so _session/_room are accessible at call time
 
             if tool_name == "end_call":
                 @function_tool(name="end_call", description="End the current phone call.")
@@ -165,10 +313,13 @@ def _build_agent(agent_config: dict, call_id: str) -> Agent:
                     return json.dumps(result)
 
             elif tool_name == "transfer_call":
-                @function_tool(name="transfer_call", description="Transfer the call to another phone number or department.")
-                async def transfer_call(to_number: str = "", department: str = "") -> str:
-                    result = await execute_tool(cid, "transfer_call", {"to_number": to_number, "department": department})
-                    return json.dumps(result)
+                transfer_cfg = (agent_ref._agent_config.get("metadata") or {}).get("transfer_call_config", {})
+                description = transfer_cfg.get("description", "Transfer the call to a human agent.")
+
+                @function_tool(name="transfer_call", description=description)
+                async def transfer_call(reason: str = "user request") -> str:
+                    db = get_supabase()
+                    return await _execute_transfer(agent_ref, cid, reason, transfer_cfg, db)
 
             elif tool_name == "check_availability":
                 @function_tool(name="check_availability", description="Check availability for a given date and time.")
@@ -382,6 +533,10 @@ async def entrypoint(ctx: agents.JobContext):
         room=ctx.room,
         agent=agent,
     )
+
+    # Wire session and room onto agent so transfer_call tool can access them
+    agent._session = session
+    agent._room = ctx.room
 
     # Send welcome message so the agent speaks first (reduces perceived latency)
     welcome_msg = agent_metadata.get("welcome_message", "")
