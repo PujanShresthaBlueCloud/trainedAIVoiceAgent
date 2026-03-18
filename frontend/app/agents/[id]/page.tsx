@@ -1899,7 +1899,7 @@ export default function AgentDetailPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Allow Interruptions</p>
-                  <p className="text-xs text-gray-400">Caller can interrupt the agent while it's speaking</p>
+                  <p className="text-xs text-gray-400">Caller can interrupt the agent while it is speaking</p>
                 </div>
                 <ToggleSwitch
                   checked={allowInterruptions}
