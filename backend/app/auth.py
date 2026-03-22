@@ -93,7 +93,7 @@ async def get_current_user(request: Request) -> dict[str, Any]:
             signing_key,
             algorithms=["RS256"],
             options={"verify_aud": False},
-            leeway=30,  # 30s clock skew tolerance
+            leeway=120,  # 120s tolerance for clock skew + network latency
         )
 
         return {
