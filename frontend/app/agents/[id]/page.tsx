@@ -1066,6 +1066,14 @@ export default function AgentDetailPage() {
   const [extractionFields, setExtractionFields] = useState<ExtractionField[]>([]);
   const [extractionWebhook, setExtractionWebhook] = useState("");
 
+  // Webhook settings
+  const WEBHOOK_EVENTS = ["call_started", "call_ended", "transcript_ready", "extraction_completed", "call_failed"] as const;
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookTimeout, setWebhookTimeout] = useState(5);
+  const [webhookEvents, setWebhookEvents] = useState<string[]>([]);
+  const [webhookTesting, setWebhookTesting] = useState(false);
+  const [webhookTestResult, setWebhookTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
   // MCP servers
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
   const [showMCPModal, setShowMCPModal] = useState(false);
@@ -1111,6 +1119,7 @@ export default function AgentDetailPage() {
         transferThreeWayEnabled, transferThreeWayMessage, transferSIPHeaders,
         transferTalkWhileWaiting, transferTalkMessage,
         mcpServers,
+        webhookUrl, webhookTimeout, webhookEvents,
       }),
     [
       name, description, systemPrompt, voiceId, language, llmModel,
@@ -1123,7 +1132,7 @@ export default function AgentDetailPage() {
       transferHasQueue, transferWaitTime, transferWhisperEnabled, transferWhisperMessage,
       transferThreeWayEnabled, transferThreeWayMessage, transferSIPHeaders,
       transferTalkWhileWaiting, transferTalkMessage,
-      mcpServers,
+      mcpServers, webhookUrl, webhookTimeout, webhookEvents,
     ]
   );
   const isDirty = savedSnapshot !== "" && currentSnapshot !== savedSnapshot;
@@ -1192,6 +1201,10 @@ export default function AgentDetailPage() {
     setTransferTalkWhileWaiting(tc.talk_while_waiting ?? false);
     setTransferTalkMessage(tc.talk_message || "");
     setMcpServers(meta.mcp_servers || []);
+    const wh = meta.webhook_settings || {};
+    setWebhookUrl(wh.url || "");
+    setWebhookTimeout(wh.timeout_seconds ?? 5);
+    setWebhookEvents(wh.events || []);
   }, []);
 
   const snapshotForm = useCallback((data: Agent) => {
@@ -1238,6 +1251,9 @@ export default function AgentDetailPage() {
         transferTalkWhileWaiting: (meta.transfer_call_config || {}).talk_while_waiting ?? false,
         transferTalkMessage: (meta.transfer_call_config || {}).talk_message || "",
         mcpServers: meta.mcp_servers || [],
+        webhookUrl: (meta.webhook_settings || {}).url || "",
+        webhookTimeout: (meta.webhook_settings || {}).timeout_seconds ?? 5,
+        webhookEvents: (meta.webhook_settings || {}).events || [],
       })
     );
   }, []);
@@ -1360,6 +1376,11 @@ export default function AgentDetailPage() {
             talk_message: transferTalkMessage.trim(),
           },
           mcp_servers: mcpServers,
+          webhook_settings: {
+            url: webhookUrl.trim() || undefined,
+            timeout_seconds: webhookTimeout,
+            events: webhookEvents,
+          },
         },
       };
       await api.updateAgent(agentId, payload);
@@ -2934,7 +2955,106 @@ export default function AgentDetailPage() {
             </CollapsibleSection>
 
             <CollapsibleSection title="Webhook Settings">
-              <PlaceholderSection label="Configure webhook endpoints" />
+              <div className="space-y-5">
+                {/* Webhook URL */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Agent Level Webhook URL
+                  </label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                    Webhook URL to receive events from this agent.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={webhookUrl}
+                      onChange={(e) => { setWebhookUrl(e.target.value); setWebhookTestResult(null); }}
+                      placeholder="https://your-server.com/webhook/agent"
+                      className="flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white font-mono focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={!webhookUrl.trim() || webhookTesting}
+                      onClick={async () => {
+                        setWebhookTesting(true);
+                        setWebhookTestResult(null);
+                        try {
+                          const res = await fetch(webhookUrl.trim(), {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ event: "test", agent_id: agentId, timestamp: new Date().toISOString() }),
+                            signal: AbortSignal.timeout(webhookTimeout * 1000),
+                          });
+                          setWebhookTestResult({ ok: res.ok, message: res.ok ? `Success (${res.status})` : `Failed (${res.status})` });
+                        } catch (e: any) {
+                          setWebhookTestResult({ ok: false, message: e.message || "Request failed" });
+                        } finally {
+                          setWebhookTesting(false);
+                        }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors disabled:opacity-40"
+                    >
+                      {webhookTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                      Test
+                    </button>
+                  </div>
+                  {webhookTestResult && (
+                    <div className={`mt-2 flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${webhookTestResult.ok ? "bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400" : "bg-red-50 dark:bg-red-900/20 text-red-500"}`}>
+                      {webhookTestResult.ok ? <CheckCircle className="w-3 h-3 flex-shrink-0" /> : <AlertCircle className="w-3 h-3 flex-shrink-0" />}
+                      {webhookTestResult.message}
+                    </div>
+                  )}
+                </div>
+
+                {/* Timeout slider */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Webhook Timeout</label>
+                    <span className="text-sm font-mono text-gray-900 dark:text-white">{webhookTimeout}s</span>
+                  </div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                    Set the maximum time to wait for a webhook response before timing out.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-400">1s</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={30}
+                      step={1}
+                      value={webhookTimeout}
+                      onChange={(e) => setWebhookTimeout(Number(e.target.value))}
+                      className="flex-1 accent-indigo-600"
+                    />
+                    <span className="text-xs text-gray-400">30s</span>
+                  </div>
+                </div>
+
+                {/* Webhook Events */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Webhook Events
+                  </label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
+                    Choose which events this webhook should receive.
+                  </p>
+                  <div className="space-y-2">
+                    {WEBHOOK_EVENTS.map((evt) => (
+                      <label key={evt} className="flex items-center gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={webhookEvents.includes(evt)}
+                          onChange={(e) => setWebhookEvents((prev) =>
+                            e.target.checked ? [...prev, evt] : prev.filter((v) => v !== evt)
+                          )}
+                          className="w-4 h-4 rounded accent-indigo-600"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">{evt}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </CollapsibleSection>
 
             <CollapsibleSection title="MCPs">
