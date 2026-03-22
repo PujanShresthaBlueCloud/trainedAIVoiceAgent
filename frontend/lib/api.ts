@@ -16,7 +16,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
     const clerk = await waitForClerk();
     if (clerk?.session) {
       // skipCache forces a fresh token, avoiding "Token has expired" on short-lived JWTs
-      const token = await clerk.session.getToken({ skipCache: true });
+      const token = await (clerk.session as any).getToken({ skipCache: true });
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
@@ -100,7 +100,7 @@ export const api = {
     try {
       const clerk = await waitForClerk();
       if (clerk?.session) {
-        const token = await clerk.session.getToken({ skipCache: true });
+        const token = await (clerk.session as any).getToken({ skipCache: true });
         if (token) {
           headers["Authorization"] = `Bearer ${token}`;
         }
