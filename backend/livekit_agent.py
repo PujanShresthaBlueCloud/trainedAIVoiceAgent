@@ -390,6 +390,54 @@ def _build_agent(agent_config: dict, call_id: str, mcp_servers: list | None = No
     return VoiceAgent()
 
 
+async def _fire_webhook(agent_config: dict, event: str, payload: dict) -> None:
+    """Fire a webhook event to the agent-level webhook URL with retry logic.
+
+    - Reads webhook_settings from agent metadata
+    - Only fires if the event is in the subscribed events list
+    - Retries up to 3 times with exponential backoff
+    - Never raises — logs errors silently so the agent is never blocked
+    """
+    wh = (agent_config.get("metadata") or {}).get("webhook_settings", {})
+    url = (wh.get("url") or "").strip()
+    if not url:
+        return
+
+    subscribed = wh.get("events", [])
+    if subscribed and event not in subscribed:
+        return
+
+    timeout_s = float(wh.get("timeout_seconds", 5))
+    body = {
+        "event": event,
+        "agent_id": agent_config.get("id"),
+        "agent_name": agent_config.get("name"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+
+    for attempt in range(1, 4):
+        try:
+            async with aiohttp.ClientSession() as http:
+                async with http.post(
+                    url,
+                    json=body,
+                    timeout=aiohttp.ClientTimeout(total=timeout_s),
+                    headers={"Content-Type": "application/json", "X-Webhook-Event": event},
+                ) as resp:
+                    if resp.status < 500:
+                        logger.info(f"Webhook [{event}] → {url} — {resp.status}")
+                        return
+                    logger.warning(f"Webhook [{event}] attempt {attempt} — server error {resp.status}")
+        except Exception as e:
+            logger.warning(f"Webhook [{event}] attempt {attempt} failed: {e}")
+
+        if attempt < 3:
+            await asyncio.sleep(2 ** attempt)  # 2s, 4s backoff
+
+    logger.error(f"Webhook [{event}] failed after 3 attempts — {url}")
+
+
 async def _run_post_call_extraction(call_id: str, agent_config: dict, db) -> None:
     """Extract structured data from call transcript using LLM and save to call metadata."""
     extraction_cfg = (agent_config.get("metadata") or {}).get("post_call_extraction", {})
@@ -461,7 +509,7 @@ async def _run_post_call_extraction(call_id: str, agent_config: dict, db) -> Non
         logger.error(f"Post-call extraction: failed to save results for {call_id}: {e}")
         return
 
-    # POST to webhook if configured
+    # POST to extraction-specific webhook if configured
     webhook_url = extraction_cfg.get("webhook_url", "").strip()
     if webhook_url:
         try:
@@ -471,6 +519,12 @@ async def _run_post_call_extraction(call_id: str, agent_config: dict, db) -> Non
             logger.info(f"Post-call extraction webhook sent for {call_id}")
         except Exception as e:
             logger.error(f"Post-call extraction: webhook failed for {call_id}: {e}")
+
+    # Fire agent-level extraction_completed webhook event
+    await _fire_webhook(agent_config, "extraction_completed", {
+        "call_id": call_id,
+        "extracted_data": extracted,
+    })
 
 
 async def entrypoint(ctx: agents.JobContext):
@@ -531,6 +585,9 @@ async def entrypoint(ctx: agents.JobContext):
         activation_threshold=0.4,
     )
 
+    # Agent metadata — read once and reuse throughout
+    agent_metadata = agent_config.get("metadata") or {}
+
     # Connect to MCP servers configured on the agent
     mcp_configs = agent_metadata.get("mcp_servers", [])
     mcp_servers = await _create_mcp_servers(mcp_configs)
@@ -539,7 +596,6 @@ async def entrypoint(ctx: agents.JobContext):
     agent = _build_agent(agent_config, call_id, mcp_servers=mcp_servers)
 
     # Speech session settings from agent metadata
-    agent_metadata = agent_config.get("metadata") or {}
     allow_interruptions = agent_metadata.get("allow_interruptions", True)
     min_endpointing_delay = float(agent_metadata.get("min_endpointing_delay", 0.3))
     max_endpointing_delay = float(agent_metadata.get("max_endpointing_delay", 1.5))
@@ -577,14 +633,31 @@ async def entrypoint(ctx: agents.JobContext):
             logger.error(f"Failed to save transcript: {e}")
 
     # Start the session
-    await session.start(
-        room=ctx.room,
-        agent=agent,
-    )
+    try:
+        await session.start(
+            room=ctx.room,
+            agent=agent,
+        )
+    except Exception as e:
+        logger.error(f"Session start failed: {e}")
+        await _fire_webhook(agent_config, "call_failed", {
+            "call_id": call_id,
+            "error": str(e),
+            "stage": "session_start",
+        })
+        if call_id:
+            try:
+                db.table("calls").update({"status": "failed"}).eq("id", call_id).execute()
+            except Exception:
+                pass
+        raise
 
     # Wire session and room onto agent so transfer_call tool can access them
     agent._session = session
     agent._room = ctx.room
+
+    # Fire call_started webhook
+    asyncio.create_task(_fire_webhook(agent_config, "call_started", {"call_id": call_id}))
 
     # Send welcome message so the agent speaks first (reduces perceived latency)
     welcome_msg = agent_metadata.get("welcome_message", "")
@@ -608,8 +681,8 @@ async def entrypoint(ctx: agents.JobContext):
             await asyncio.sleep(1)
 
         # Session ended — update call record
+        duration = int(time.time() - started_at)
         if call_id:
-            duration = int(time.time() - started_at)
             try:
                 db.table("calls").update({
                     "status": "completed",
@@ -620,7 +693,32 @@ async def entrypoint(ctx: agents.JobContext):
             except Exception as e:
                 logger.error(f"Failed to update call record: {e}")
 
-        logger.info(f"Session ended: call={call_id}, duration={int(time.time() - started_at)}s")
+        logger.info(f"Session ended: call={call_id}, duration={duration}s")
+
+        # Fire call_ended webhook
+        await _fire_webhook(agent_config, "call_ended", {
+            "call_id": call_id,
+            "duration_seconds": duration,
+            "end_reason": "participant_left",
+        })
+
+        # Fire transcript_ready webhook — batch full transcript
+        if call_id:
+            try:
+                transcript_result = db.table("transcript_entries") \
+                    .select("role,content,timestamp") \
+                    .eq("call_id", call_id) \
+                    .order("timestamp") \
+                    .execute()
+                transcript = transcript_result.data or []
+                if transcript:
+                    await _fire_webhook(agent_config, "transcript_ready", {
+                        "call_id": call_id,
+                        "transcript": transcript,
+                        "turn_count": len(transcript),
+                    })
+            except Exception as e:
+                logger.error(f"Failed to fetch transcript for webhook: {e}")
 
         # Run post-call data extraction if configured
         await _run_post_call_extraction(call_id, agent_config, db)
