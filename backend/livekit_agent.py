@@ -278,7 +278,48 @@ def _load_custom_functions(tool_names: list[str]) -> dict[str, dict]:
         return {}
 
 
-def _build_agent(agent_config: dict, call_id: str) -> Agent:
+async def _create_mcp_servers(mcp_configs: list[dict]) -> list:
+    """Connect to configured MCP servers. Returns a list of server objects."""
+    if not mcp_configs:
+        return []
+
+    try:
+        from livekit.agents.mcp import MCPServerHTTP
+    except ImportError:
+        logger.warning("livekit.agents.mcp not available — skipping MCP servers")
+        return []
+
+    servers = []
+    for cfg in mcp_configs:
+        url = cfg.get("url", "").strip()
+        name = cfg.get("name", "mcp")
+        if not url:
+            continue
+
+        timeout_s = cfg.get("timeout", 10000) / 1000
+        headers = {h["key"]: h["value"] for h in cfg.get("headers", []) if h.get("key")}
+
+        # Append query params to URL if present
+        params = {p["key"]: p["value"] for p in cfg.get("queryParams", []) if p.get("key")}
+        if params:
+            from urllib.parse import urlencode
+            url += ("&" if "?" in url else "?") + urlencode(params)
+
+        try:
+            server = MCPServerHTTP(
+                url=url,
+                client_session_timeout=timeout_s,
+                **({"headers": headers} if headers else {}),
+            )
+            servers.append(server)
+            logger.info(f"MCP server connected: {name} @ {url}")
+        except Exception as e:
+            logger.error(f"Failed to create MCP server '{name}': {e}")
+
+    return servers
+
+
+def _build_agent(agent_config: dict, call_id: str, mcp_servers: list | None = None) -> Agent:
     """Build a LiveKit Agent with instructions and tools from agent config."""
     system_prompt = agent_config.get("system_prompt", "You are a helpful voice AI assistant.")
     rag_context = _load_rag_context(agent_config)
@@ -291,7 +332,10 @@ def _build_agent(agent_config: dict, call_id: str) -> Agent:
 
     class VoiceAgent(Agent):
         def __init__(self):
-            super().__init__(instructions=instructions)
+            super().__init__(
+                instructions=instructions,
+                **({"mcp_servers": mcp_servers} if mcp_servers else {}),
+            )
             self._call_id = call_id
             self._agent_config = agent_config
             self._session = None  # set after session.start()
@@ -487,8 +531,12 @@ async def entrypoint(ctx: agents.JobContext):
         activation_threshold=0.4,
     )
 
-    # Build agent with tools
-    agent = _build_agent(agent_config, call_id)
+    # Connect to MCP servers configured on the agent
+    mcp_configs = agent_metadata.get("mcp_servers", [])
+    mcp_servers = await _create_mcp_servers(mcp_configs)
+
+    # Build agent with tools and MCP servers
+    agent = _build_agent(agent_config, call_id, mcp_servers=mcp_servers)
 
     # Speech session settings from agent metadata
     agent_metadata = agent_config.get("metadata") or {}
