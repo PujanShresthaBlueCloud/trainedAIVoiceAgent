@@ -167,60 +167,92 @@ async def _execute_transfer(agent_ref, cid: str, reason: str, transfer_cfg: dict
     return json.dumps({"transferred": True, "to": destination, "type": transfer_type})
 
 
-def _build_stt(agent_config: dict) -> deepgram.STT:
-    """Build Deepgram STT plugin from agent config and transcription_settings metadata."""
+def _build_stt(agent_config: dict):
+    """Build STT plugin from agent config — supports Deepgram and OpenAI Whisper."""
     language = agent_config.get("language", "en-US")
+    lang_short = (language[:2] if language else "en").lower()
     ts = (agent_config.get("metadata") or {}).get("transcription_settings", {})
 
+    provider = ts.get("stt_provider", "deepgram")
     transcription_mode = ts.get("transcription_mode", "speed")
     denoising_mode = ts.get("denoising_mode", "no_denoising")
     vocabulary = ts.get("vocabulary", "general")
-    boosted_keywords = ts.get("boosted_keywords", [])  # list of strings
-
-    # Model selection — medical vocabulary uses nova-3-medical
-    model = "nova-3-medical" if vocabulary == "medical" else "nova-3"
-
-    # Mode presets
-    if transcription_mode == "accuracy":
-        no_delay = False
-        endpointing_ms = 300
-        smart_format = True
-        punctuate = True
-        interim_results = False
-    else:
-        # speed (default) or custom
-        no_delay = True
-        endpointing_ms = 100
-        smart_format = False
-        punctuate = False
-        interim_results = True
-
-    # Denoising maps to filler_words behaviour
-    # remove_noise / remove_noise_background_speech → strip filler words
-    # no_denoising → keep filler words as-is
-    filler_words = denoising_mode == "no_denoising"
-
-    stt_kwargs: dict = dict(
-        model=model,
-        language=language[:2] if language else "en",
-        api_key=settings.DEEPGRAM_API_KEY,
-        no_delay=no_delay,
-        endpointing_ms=endpointing_ms,
-        smart_format=smart_format,
-        punctuate=punctuate,
-        interim_results=interim_results,
-        filler_words=filler_words,
-    )
-
-    # Keyword boosting — Deepgram accepts list of "word:boost" or plain words
-    if boosted_keywords:
-        stt_kwargs["keywords"] = [kw if ":" in kw else f"{kw}:1" for kw in boosted_keywords]
+    boosted_keywords: list[str] = ts.get("boosted_keywords", [])
 
     logger.info(
-        f"STT config: model={model}, mode={transcription_mode}, "
-        f"denoising={denoising_mode}, keywords={boosted_keywords}"
+        f"STT: provider={provider}, mode={transcription_mode}, "
+        f"denoising={denoising_mode}, vocab={vocabulary}, keywords={boosted_keywords}"
     )
-    return deepgram.STT(**stt_kwargs)
+
+    # ── Deepgram ──────────────────────────────────────────────────
+    if provider == "deepgram":
+        # Model: nova-3-medical for healthcare, nova-3 for everything else
+        model = "nova-3-medical" if vocabulary == "medical" else "nova-3"
+
+        # Transcription mode presets
+        if transcription_mode == "accuracy":
+            no_delay      = False
+            endpointing_ms = 300
+            smart_format  = True
+            punctuate     = True
+            interim_results = False
+        else:
+            # speed (default)
+            no_delay       = True
+            endpointing_ms = 100
+            smart_format   = False
+            punctuate      = False
+            interim_results = True
+
+        # Filler-word filtering (closest Deepgram equivalent to denoising)
+        # no_denoising → preserve filler words; anything else → filter them
+        filler_words = (denoising_mode == "no_denoising")
+
+        # Profanity filter for aggressive denoising mode
+        profanity_filter = (denoising_mode == "remove_noise_background_speech")
+
+        stt_kwargs: dict = dict(
+            model=model,
+            language=lang_short,
+            api_key=settings.DEEPGRAM_API_KEY,
+            no_delay=no_delay,
+            endpointing_ms=endpointing_ms,
+            smart_format=smart_format,
+            punctuate=punctuate,
+            interim_results=interim_results,
+            filler_words=filler_words,
+            profanity_filter=profanity_filter,
+        )
+
+        # Keyword boosting — livekit-plugins-deepgram expects list[tuple[str, float]]
+        if boosted_keywords:
+            stt_kwargs["keywords"] = [(kw.strip(), 1.0) for kw in boosted_keywords if kw.strip()]
+
+        return deepgram.STT(**stt_kwargs)
+
+    # ── OpenAI Whisper ────────────────────────────────────────────
+    elif provider == "openai_whisper":
+        # gpt-4o-transcribe for accuracy, whisper-1 for speed
+        model = "gpt-4o-transcribe" if transcription_mode == "accuracy" else "whisper-1"
+        return openai.STT(
+            model=model,
+            language=lang_short,
+            api_key=settings.OPENAI_API_KEY,
+        )
+
+    # ── Fallback: Deepgram with defaults ─────────────────────────
+    else:
+        logger.warning(f"Unknown STT provider '{provider}', falling back to Deepgram")
+        return deepgram.STT(
+            model="nova-3",
+            language=lang_short,
+            api_key=settings.DEEPGRAM_API_KEY,
+            no_delay=True,
+            endpointing_ms=100,
+            smart_format=False,
+            punctuate=False,
+            interim_results=True,
+        )
 
 
 def _build_llm(agent_config: dict):

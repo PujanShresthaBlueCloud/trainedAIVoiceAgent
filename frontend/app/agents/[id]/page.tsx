@@ -1067,6 +1067,7 @@ export default function AgentDetailPage() {
   const [extractionWebhook, setExtractionWebhook] = useState("");
 
   // Realtime transcription settings
+  const [sttProvider, setSttProvider] = useState<"deepgram" | "openai_whisper">("deepgram");
   const [denoisingMode, setDenoisingMode] = useState<"remove_noise" | "remove_noise_background_speech" | "no_denoising">("no_denoising");
   const [transcriptionMode, setTranscriptionMode] = useState<"speed" | "accuracy" | "custom">("speed");
   const [vocabularySpecialization, setVocabularySpecialization] = useState<"general" | "medical">("general");
@@ -1126,7 +1127,7 @@ export default function AgentDetailPage() {
         transferTalkWhileWaiting, transferTalkMessage,
         mcpServers,
         webhookUrl, webhookTimeout, webhookEvents,
-        denoisingMode, transcriptionMode, vocabularySpecialization, boostedKeywords,
+        sttProvider, denoisingMode, transcriptionMode, vocabularySpecialization, boostedKeywords,
       }),
     [
       name, description, systemPrompt, voiceId, language, llmModel,
@@ -1140,7 +1141,7 @@ export default function AgentDetailPage() {
       transferThreeWayEnabled, transferThreeWayMessage, transferSIPHeaders,
       transferTalkWhileWaiting, transferTalkMessage,
       mcpServers, webhookUrl, webhookTimeout, webhookEvents,
-      denoisingMode, transcriptionMode, vocabularySpecialization, boostedKeywords,
+      sttProvider, denoisingMode, transcriptionMode, vocabularySpecialization, boostedKeywords,
     ]
   );
   const isDirty = savedSnapshot !== "" && currentSnapshot !== savedSnapshot;
@@ -1210,6 +1211,7 @@ export default function AgentDetailPage() {
     setTransferTalkMessage(tc.talk_message || "");
     setMcpServers(meta.mcp_servers || []);
     const ts = meta.transcription_settings || {};
+    setSttProvider(ts.stt_provider || "deepgram");
     setDenoisingMode(ts.denoising_mode || "no_denoising");
     setTranscriptionMode(ts.transcription_mode || "speed");
     setVocabularySpecialization(ts.vocabulary || "general");
@@ -1264,6 +1266,7 @@ export default function AgentDetailPage() {
         transferTalkWhileWaiting: (meta.transfer_call_config || {}).talk_while_waiting ?? false,
         transferTalkMessage: (meta.transfer_call_config || {}).talk_message || "",
         mcpServers: meta.mcp_servers || [],
+        sttProvider: (meta.transcription_settings || {}).stt_provider || "deepgram",
         denoisingMode: (meta.transcription_settings || {}).denoising_mode || "no_denoising",
         transcriptionMode: (meta.transcription_settings || {}).transcription_mode || "speed",
         vocabularySpecialization: (meta.transcription_settings || {}).vocabulary || "general",
@@ -1394,6 +1397,7 @@ export default function AgentDetailPage() {
           },
           mcp_servers: mcpServers,
           transcription_settings: {
+            stt_provider: sttProvider,
             denoising_mode: denoisingMode,
             transcription_mode: transcriptionMode,
             vocabulary: vocabularySpecialization,
@@ -2543,26 +2547,60 @@ export default function AgentDetailPage() {
             <CollapsibleSection title="Realtime Transcription Settings">
               <div className="space-y-6">
 
-                {/* Denoising Mode */}
+                {/* STT Provider */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Denoising Mode</label>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Filter out unwanted background noise or speech.</p>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">STT Provider</label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Speech-to-text engine used during calls.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: "deepgram", label: "Deepgram", sub: "nova-3 · Full feature support", badges: ["Denoising", "Keywords", "Medical"] },
+                      { value: "openai_whisper", label: "OpenAI Whisper", sub: "whisper-1 / gpt-4o-transcribe", badges: ["Speed", "Accuracy"] },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setSttProvider(opt.value as any)}
+                        className={`text-left p-3 rounded-lg border-2 transition-colors ${
+                          sttProvider === opt.value
+                            ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20"
+                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600"
+                        }`}
+                      >
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">{opt.label}</p>
+                        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">{opt.sub}</p>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {opt.badges.map((b) => (
+                            <span key={b} className="px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded">
+                              {b}
+                            </span>
+                          ))}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-200 dark:border-gray-800" />
+
+                {/* Denoising Mode — Deepgram only */}
+                <div className={sttProvider !== "deepgram" ? "opacity-40 pointer-events-none" : ""}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Denoising Mode</label>
+                    {sttProvider !== "deepgram" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400">Deepgram only</span>}
+                  </div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Filter filler words (um, uh, like) and profanity from the transcript.</p>
                   <div className="space-y-2">
                     {[
-                      { value: "remove_noise", label: "Remove noise" },
-                      { value: "remove_noise_background_speech", label: "Remove noise + background speech" },
-                      { value: "no_denoising", label: "No denoising" },
+                      { value: "remove_noise", label: "Remove noise", sub: "Filters filler words from transcript" },
+                      { value: "remove_noise_background_speech", label: "Remove noise + background speech", sub: "Filters filler words and profanity" },
+                      { value: "no_denoising", label: "No denoising", sub: "Raw transcript, nothing filtered" },
                     ].map((opt) => (
-                      <label key={opt.value} className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="denoisingMode"
-                          value={opt.value}
-                          checked={denoisingMode === opt.value}
-                          onChange={() => setDenoisingMode(opt.value as any)}
-                          className="accent-indigo-600"
-                        />
-                        <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
+                      <label key={opt.value} className="flex items-start gap-3 cursor-pointer">
+                        <input type="radio" name="denoisingMode" value={opt.value} checked={denoisingMode === opt.value} onChange={() => setDenoisingMode(opt.value as any)} className="accent-indigo-600 mt-0.5" />
+                        <div>
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
+                          <p className="text-xs text-gray-400 dark:text-gray-500">{opt.sub}</p>
+                        </div>
                       </label>
                     ))}
                   </div>
@@ -2573,22 +2611,16 @@ export default function AgentDetailPage() {
                 {/* Transcription Mode */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transcription Mode</label>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Balance between speed and accuracy.</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
+                    {sttProvider === "deepgram" ? "Deepgram: speed adjusts endpointing and smart_format." : "OpenAI: speed uses whisper-1, accuracy uses gpt-4o-transcribe."}
+                  </p>
                   <div className="space-y-2">
                     {[
                       { value: "speed", label: "Optimize for speed", sub: "Low latency, ideal for real-time conversation" },
                       { value: "accuracy", label: "Optimize for accuracy", sub: "Higher accuracy, slightly more latency" },
-                      { value: "custom", label: "Custom Settings", sub: "Fine-tune STT parameters manually" },
                     ].map((opt) => (
                       <label key={opt.value} className="flex items-start gap-3 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="transcriptionMode"
-                          value={opt.value}
-                          checked={transcriptionMode === opt.value}
-                          onChange={() => setTranscriptionMode(opt.value as any)}
-                          className="accent-indigo-600 mt-0.5"
-                        />
+                        <input type="radio" name="transcriptionMode" value={opt.value} checked={transcriptionMode === opt.value} onChange={() => setTranscriptionMode(opt.value as any)} className="accent-indigo-600 mt-0.5" />
                         <div>
                           <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
                           <p className="text-xs text-gray-400 dark:text-gray-500">{opt.sub}</p>
@@ -2600,24 +2632,20 @@ export default function AgentDetailPage() {
 
                 <div className="border-t border-gray-200 dark:border-gray-800" />
 
-                {/* Vocabulary Specialization */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vocabulary Specialization</label>
+                {/* Vocabulary Specialization — Deepgram only */}
+                <div className={sttProvider !== "deepgram" ? "opacity-40 pointer-events-none" : ""}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vocabulary Specialization</label>
+                    {sttProvider !== "deepgram" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400">Deepgram only</span>}
+                  </div>
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Choose the vocabulary set to use for transcription.</p>
                   <div className="space-y-2">
                     {[
-                      { value: "general", label: "General", sub: "Works well across most industries" },
-                      { value: "medical", label: "Medical", sub: "Optimized for healthcare terms" },
+                      { value: "general", label: "General", sub: "nova-3 — Works well across most industries" },
+                      { value: "medical", label: "Medical", sub: "nova-3-medical — Optimized for healthcare terms" },
                     ].map((opt) => (
                       <label key={opt.value} className="flex items-start gap-3 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="vocabularySpecialization"
-                          value={opt.value}
-                          checked={vocabularySpecialization === opt.value}
-                          onChange={() => setVocabularySpecialization(opt.value as any)}
-                          className="accent-indigo-600 mt-0.5"
-                        />
+                        <input type="radio" name="vocabularySpecialization" value={opt.value} checked={vocabularySpecialization === opt.value} onChange={() => setVocabularySpecialization(opt.value as any)} className="accent-indigo-600 mt-0.5" />
                         <div>
                           <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
                           <p className="text-xs text-gray-400 dark:text-gray-500">{opt.sub}</p>
@@ -2629,9 +2657,12 @@ export default function AgentDetailPage() {
 
                 <div className="border-t border-gray-200 dark:border-gray-800" />
 
-                {/* Boosted Keywords */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Boosted Keywords</label>
+                {/* Boosted Keywords — Deepgram only */}
+                <div className={sttProvider !== "deepgram" ? "opacity-40 pointer-events-none" : ""}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Boosted Keywords</label>
+                    {sttProvider !== "deepgram" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400">Deepgram only</span>}
+                  </div>
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
                     Provide a customized list of keywords to expand the model vocabulary. Split by comma.
                   </p>
