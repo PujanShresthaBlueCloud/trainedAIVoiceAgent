@@ -1066,6 +1066,12 @@ export default function AgentDetailPage() {
   const [extractionFields, setExtractionFields] = useState<ExtractionField[]>([]);
   const [extractionWebhook, setExtractionWebhook] = useState("");
 
+  // Realtime transcription settings
+  const [denoisingMode, setDenoisingMode] = useState<"remove_noise" | "remove_noise_background_speech" | "no_denoising">("no_denoising");
+  const [transcriptionMode, setTranscriptionMode] = useState<"speed" | "accuracy" | "custom">("speed");
+  const [vocabularySpecialization, setVocabularySpecialization] = useState<"general" | "medical">("general");
+  const [boostedKeywords, setBoostedKeywords] = useState("");
+
   // Webhook settings
   const WEBHOOK_EVENTS = ["call_started", "call_ended", "transcript_ready", "extraction_completed", "call_failed"] as const;
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -1120,6 +1126,7 @@ export default function AgentDetailPage() {
         transferTalkWhileWaiting, transferTalkMessage,
         mcpServers,
         webhookUrl, webhookTimeout, webhookEvents,
+        denoisingMode, transcriptionMode, vocabularySpecialization, boostedKeywords,
       }),
     [
       name, description, systemPrompt, voiceId, language, llmModel,
@@ -1133,6 +1140,7 @@ export default function AgentDetailPage() {
       transferThreeWayEnabled, transferThreeWayMessage, transferSIPHeaders,
       transferTalkWhileWaiting, transferTalkMessage,
       mcpServers, webhookUrl, webhookTimeout, webhookEvents,
+      denoisingMode, transcriptionMode, vocabularySpecialization, boostedKeywords,
     ]
   );
   const isDirty = savedSnapshot !== "" && currentSnapshot !== savedSnapshot;
@@ -1201,6 +1209,11 @@ export default function AgentDetailPage() {
     setTransferTalkWhileWaiting(tc.talk_while_waiting ?? false);
     setTransferTalkMessage(tc.talk_message || "");
     setMcpServers(meta.mcp_servers || []);
+    const ts = meta.transcription_settings || {};
+    setDenoisingMode(ts.denoising_mode || "no_denoising");
+    setTranscriptionMode(ts.transcription_mode || "speed");
+    setVocabularySpecialization(ts.vocabulary || "general");
+    setBoostedKeywords((ts.boosted_keywords || []).join(", "));
     const wh = meta.webhook_settings || {};
     setWebhookUrl(wh.url || "");
     setWebhookTimeout(wh.timeout_seconds ?? 5);
@@ -1251,6 +1264,10 @@ export default function AgentDetailPage() {
         transferTalkWhileWaiting: (meta.transfer_call_config || {}).talk_while_waiting ?? false,
         transferTalkMessage: (meta.transfer_call_config || {}).talk_message || "",
         mcpServers: meta.mcp_servers || [],
+        denoisingMode: (meta.transcription_settings || {}).denoising_mode || "no_denoising",
+        transcriptionMode: (meta.transcription_settings || {}).transcription_mode || "speed",
+        vocabularySpecialization: (meta.transcription_settings || {}).vocabulary || "general",
+        boostedKeywords: ((meta.transcription_settings || {}).boosted_keywords || []).join(", "),
         webhookUrl: (meta.webhook_settings || {}).url || "",
         webhookTimeout: (meta.webhook_settings || {}).timeout_seconds ?? 5,
         webhookEvents: (meta.webhook_settings || {}).events || [],
@@ -1376,6 +1393,15 @@ export default function AgentDetailPage() {
             talk_message: transferTalkMessage.trim(),
           },
           mcp_servers: mcpServers,
+          transcription_settings: {
+            denoising_mode: denoisingMode,
+            transcription_mode: transcriptionMode,
+            vocabulary: vocabularySpecialization,
+            boosted_keywords: boostedKeywords
+              .split(",")
+              .map((k) => k.trim())
+              .filter(Boolean),
+          },
           webhook_settings: {
             url: webhookUrl.trim() || undefined,
             timeout_seconds: webhookTimeout,
@@ -2515,7 +2541,119 @@ export default function AgentDetailPage() {
 
             {/* 5-11. Placeholder sections */}
             <CollapsibleSection title="Realtime Transcription Settings">
-              <PlaceholderSection label="Configure realtime transcription" />
+              <div className="space-y-6">
+
+                {/* Denoising Mode */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Denoising Mode</label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Filter out unwanted background noise or speech.</p>
+                  <div className="space-y-2">
+                    {[
+                      { value: "remove_noise", label: "Remove noise" },
+                      { value: "remove_noise_background_speech", label: "Remove noise + background speech" },
+                      { value: "no_denoising", label: "No denoising" },
+                    ].map((opt) => (
+                      <label key={opt.value} className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="denoisingMode"
+                          value={opt.value}
+                          checked={denoisingMode === opt.value}
+                          onChange={() => setDenoisingMode(opt.value as any)}
+                          className="accent-indigo-600"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-200 dark:border-gray-800" />
+
+                {/* Transcription Mode */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transcription Mode</label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Balance between speed and accuracy.</p>
+                  <div className="space-y-2">
+                    {[
+                      { value: "speed", label: "Optimize for speed", sub: "Low latency, ideal for real-time conversation" },
+                      { value: "accuracy", label: "Optimize for accuracy", sub: "Higher accuracy, slightly more latency" },
+                      { value: "custom", label: "Custom Settings", sub: "Fine-tune STT parameters manually" },
+                    ].map((opt) => (
+                      <label key={opt.value} className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="transcriptionMode"
+                          value={opt.value}
+                          checked={transcriptionMode === opt.value}
+                          onChange={() => setTranscriptionMode(opt.value as any)}
+                          className="accent-indigo-600 mt-0.5"
+                        />
+                        <div>
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
+                          <p className="text-xs text-gray-400 dark:text-gray-500">{opt.sub}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-200 dark:border-gray-800" />
+
+                {/* Vocabulary Specialization */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vocabulary Specialization</label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Choose the vocabulary set to use for transcription.</p>
+                  <div className="space-y-2">
+                    {[
+                      { value: "general", label: "General", sub: "Works well across most industries" },
+                      { value: "medical", label: "Medical", sub: "Optimized for healthcare terms" },
+                    ].map((opt) => (
+                      <label key={opt.value} className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="vocabularySpecialization"
+                          value={opt.value}
+                          checked={vocabularySpecialization === opt.value}
+                          onChange={() => setVocabularySpecialization(opt.value as any)}
+                          className="accent-indigo-600 mt-0.5"
+                        />
+                        <div>
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
+                          <p className="text-xs text-gray-400 dark:text-gray-500">{opt.sub}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-200 dark:border-gray-800" />
+
+                {/* Boosted Keywords */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Boosted Keywords</label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                    Provide a customized list of keywords to expand the model's vocabulary. Split by comma.
+                  </p>
+                  <input
+                    type="text"
+                    value={boostedKeywords}
+                    onChange={(e) => setBoostedKeywords(e.target.value)}
+                    placeholder="Example: HubSpot, Salesforce, Medicare"
+                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  />
+                  {boostedKeywords.trim() && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {boostedKeywords.split(",").map((k) => k.trim()).filter(Boolean).map((kw) => (
+                        <span key={kw} className="px-2 py-0.5 text-[11px] font-medium bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full border border-indigo-200 dark:border-indigo-800">
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+              </div>
             </CollapsibleSection>
 
             {false && <CollapsibleSection title="Transfer Call Settings">

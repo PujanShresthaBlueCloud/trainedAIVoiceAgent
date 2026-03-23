@@ -168,18 +168,59 @@ async def _execute_transfer(agent_ref, cid: str, reason: str, transfer_cfg: dict
 
 
 def _build_stt(agent_config: dict) -> deepgram.STT:
-    """Build Deepgram STT plugin from agent config."""
+    """Build Deepgram STT plugin from agent config and transcription_settings metadata."""
     language = agent_config.get("language", "en-US")
-    return deepgram.STT(
-        model="nova-3",
+    ts = (agent_config.get("metadata") or {}).get("transcription_settings", {})
+
+    transcription_mode = ts.get("transcription_mode", "speed")
+    denoising_mode = ts.get("denoising_mode", "no_denoising")
+    vocabulary = ts.get("vocabulary", "general")
+    boosted_keywords = ts.get("boosted_keywords", [])  # list of strings
+
+    # Model selection — medical vocabulary uses nova-3-medical
+    model = "nova-3-medical" if vocabulary == "medical" else "nova-3"
+
+    # Mode presets
+    if transcription_mode == "accuracy":
+        no_delay = False
+        endpointing_ms = 300
+        smart_format = True
+        punctuate = True
+        interim_results = False
+    else:
+        # speed (default) or custom
+        no_delay = True
+        endpointing_ms = 100
+        smart_format = False
+        punctuate = False
+        interim_results = True
+
+    # Denoising maps to filler_words behaviour
+    # remove_noise / remove_noise_background_speech → strip filler words
+    # no_denoising → keep filler words as-is
+    filler_words = denoising_mode == "no_denoising"
+
+    stt_kwargs: dict = dict(
+        model=model,
         language=language[:2] if language else "en",
         api_key=settings.DEEPGRAM_API_KEY,
-        no_delay=True,
-        endpointing_ms=100,
-        smart_format=False,
-        punctuate=False,
-        interim_results=True,
+        no_delay=no_delay,
+        endpointing_ms=endpointing_ms,
+        smart_format=smart_format,
+        punctuate=punctuate,
+        interim_results=interim_results,
+        filler_words=filler_words,
     )
+
+    # Keyword boosting — Deepgram accepts list of "word:boost" or plain words
+    if boosted_keywords:
+        stt_kwargs["keywords"] = [kw if ":" in kw else f"{kw}:1" for kw in boosted_keywords]
+
+    logger.info(
+        f"STT config: model={model}, mode={transcription_mode}, "
+        f"denoising={denoising_mode}, keywords={boosted_keywords}"
+    )
+    return deepgram.STT(**stt_kwargs)
 
 
 def _build_llm(agent_config: dict):
