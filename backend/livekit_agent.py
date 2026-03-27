@@ -399,66 +399,98 @@ def _build_agent(agent_config: dict, call_id: str, mcp_servers: list | None = No
     instructions = system_prompt + rag_context
 
     tools_enabled = agent_config.get("tools_enabled", [])
-
-    # Batch-load all custom function defs in one query (instead of N queries)
     custom_funcs = _load_custom_functions(tools_enabled)
 
+    # Mutable state for late-bound session/room (set after session.start())
+    state: dict = {"session": None, "room": None}
+
+    transfer_cfg = (agent_config.get("metadata") or {}).get("transfer_call_config", {})
+
+    # ── Build tool list ───────────────────────────────────────────
+    tools = []
+
+    for tool_name in tools_enabled:
+
+        if tool_name == "end_call":
+            @function_tool(name="end_call", description="End the current phone call.")
+            async def _end_call(reason: str = "completed") -> str:
+                result = await execute_tool(call_id, "end_call", {"reason": reason})
+                return json.dumps(result)
+            tools.append(_end_call)
+
+        elif tool_name == "transfer_call":
+            _tc = transfer_cfg  # bind now — avoids closure over mutable
+            _desc = _tc.get("description", "Transfer the call to a human agent.")
+
+            @function_tool(name="transfer_call", description=_desc)
+            async def _transfer_call(reason: str = "user request") -> str:
+                db = get_supabase()
+
+                class _Ref:
+                    _session = state["session"]
+                    _room = state["room"]
+
+                return await _execute_transfer(_Ref(), call_id, reason, _tc, db)
+            tools.append(_transfer_call)
+
+        elif tool_name == "check_availability":
+            @function_tool(name="check_availability", description="Check availability for a given date and time.")
+            async def _check_availability(date: str, time: str = "") -> str:
+                result = await execute_tool(call_id, "check_availability", {"date": date, "time": time})
+                return json.dumps(result)
+            tools.append(_check_availability)
+
+        elif tool_name == "book_appointment":
+            @function_tool(name="book_appointment", description="Book an appointment for the caller.")
+            async def _book_appointment(name: str, date: str, time: str, notes: str = "") -> str:
+                result = await execute_tool(call_id, "book_appointment", {"name": name, "date": date, "time": time, "notes": notes})
+                return json.dumps(result)
+            tools.append(_book_appointment)
+
+        elif tool_name in custom_funcs:
+            # Fix closure: bind tool_name via default arg so each function captures its own value
+            func_def = custom_funcs[tool_name]
+            _name = tool_name
+            _desc = func_def.get("description", f"Custom function: {tool_name}")
+
+            @function_tool(name=_name, description=_desc)
+            async def _custom_tool(_tn: str = _name, **kwargs) -> str:
+                result = await execute_tool(call_id, _tn, kwargs)
+                return json.dumps(result)
+            tools.append(_custom_tool)
+
+        else:
+            logger.warning(f"Tool '{tool_name}' not found in built-in or custom functions — skipping")
+
+    logger.info(f"Agent tools registered: {[t.name if hasattr(t, 'name') else str(t) for t in tools]}")
+
+    # ── Build Agent ───────────────────────────────────────────────
     class VoiceAgent(Agent):
         def __init__(self):
             super().__init__(
                 instructions=instructions,
+                tools=tools,
                 **({"mcp_servers": mcp_servers} if mcp_servers else {}),
             )
+            self._state = state   # shared mutable dict — session/room set after start()
             self._call_id = call_id
             self._agent_config = agent_config
-            self._session = None  # set after session.start()
-            self._room = None     # set after ctx.connect()
 
-            # Register dynamic tools based on agent config
-            for tool_name in tools_enabled:
-                self._register_tool(tool_name)
+        @property
+        def _session(self):
+            return self._state["session"]
 
-        def _register_tool(self, tool_name: str):
-            """Register a tool as a function_tool on this agent."""
-            cid = self._call_id
-            agent_ref = self  # capture by reference so _session/_room are accessible at call time
+        @_session.setter
+        def _session(self, v):
+            self._state["session"] = v
 
-            if tool_name == "end_call":
-                @function_tool(name="end_call", description="End the current phone call.")
-                async def end_call(reason: str = "completed") -> str:
-                    result = await execute_tool(cid, "end_call", {"reason": reason})
-                    return json.dumps(result)
+        @property
+        def _room(self):
+            return self._state["room"]
 
-            elif tool_name == "transfer_call":
-                transfer_cfg = (agent_ref._agent_config.get("metadata") or {}).get("transfer_call_config", {})
-                description = transfer_cfg.get("description", "Transfer the call to a human agent.")
-
-                @function_tool(name="transfer_call", description=description)
-                async def transfer_call(reason: str = "user request") -> str:
-                    db = get_supabase()
-                    return await _execute_transfer(agent_ref, cid, reason, transfer_cfg, db)
-
-            elif tool_name == "check_availability":
-                @function_tool(name="check_availability", description="Check availability for a given date and time.")
-                async def check_availability(date: str, time: str = "") -> str:
-                    result = await execute_tool(cid, "check_availability", {"date": date, "time": time})
-                    return json.dumps(result)
-
-            elif tool_name == "book_appointment":
-                @function_tool(name="book_appointment", description="Book an appointment for the caller.")
-                async def book_appointment(name: str, date: str, time: str, notes: str = "") -> str:
-                    result = await execute_tool(cid, "book_appointment", {"name": name, "date": date, "time": time, "notes": notes})
-                    return json.dumps(result)
-
-            elif tool_name in custom_funcs:
-                # Custom function — already loaded from DB
-                func_def = custom_funcs[tool_name]
-                description = func_def.get("description", f"Custom function: {tool_name}")
-
-                @function_tool(name=tool_name, description=description)
-                async def custom_tool(**kwargs) -> str:
-                    result = await execute_tool(cid, tool_name, kwargs)
-                    return json.dumps(result)
+        @_room.setter
+        def _room(self, v):
+            self._state["room"] = v
 
     return VoiceAgent()
 
