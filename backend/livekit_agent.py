@@ -240,6 +240,11 @@ def _build_stt(agent_config: dict):
             api_key=settings.OPENAI_API_KEY,
         )
 
+    # ── Nepali wav2vec2 ───────────────────────────────────────────
+    elif provider == "nepali_wav2vec2":
+        from app.voice.nepali_stt import NepaliSTT
+        return NepaliSTT()
+
     # ── Fallback: Deepgram with defaults ─────────────────────────
     else:
         logger.warning(f"Unknown STT provider '{provider}', falling back to Deepgram")
@@ -289,17 +294,23 @@ def _build_llm(agent_config: dict):
         )
 
 
-def _build_tts(agent_config: dict) -> cartesia.TTS:
-    """Build Cartesia TTS plugin from agent config."""
+def _build_tts(agent_config: dict):
+    """Build TTS plugin from agent config — supports Cartesia and local Nepali model."""
     language = agent_config.get("language", "en-US")
-
-    # Use Cartesia voice ID from agent metadata, or fall back to default
     metadata = agent_config.get("metadata") or {}
-    cartesia_voice = metadata.get("cartesia_voice_id")
 
-    # Speech synthesis settings
+    # Use Nepali local TTS when language is Nepali or explicitly selected
+    ts = metadata.get("transcription_settings", {})
+    stt_provider = ts.get("stt_provider", "deepgram")
+    if stt_provider == "nepali_wav2vec2" or (language and language.lower().startswith("ne")):
+        logger.info("Using local Nepali TTS (SpeechT5 fine-tuned)")
+        from app.voice.nepali_tts import NepaliTTS
+        return NepaliTTS()
+
+    # Default: Cartesia TTS
+    cartesia_voice = metadata.get("cartesia_voice_id")
     tts_speed = metadata.get("tts_speed", "normal")
-    tts_emotion = metadata.get("tts_emotion")  # e.g. ["positivity:high", "curiosity"]
+    tts_emotion = metadata.get("tts_emotion")
 
     tts_kwargs: dict = {
         "model": "sonic-3",

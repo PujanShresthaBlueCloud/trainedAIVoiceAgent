@@ -1067,7 +1067,7 @@ export default function AgentDetailPage() {
   const [extractionWebhook, setExtractionWebhook] = useState("");
 
   // Realtime transcription settings
-  const [sttProvider, setSttProvider] = useState<"deepgram" | "openai_whisper">("deepgram");
+  const [sttProvider, setSttProvider] = useState<"deepgram" | "openai_whisper" | "nepali_wav2vec2">("deepgram");
   const [denoisingMode, setDenoisingMode] = useState<"remove_noise" | "remove_noise_background_speech" | "no_denoising">("no_denoising");
   const [transcriptionMode, setTranscriptionMode] = useState<"speed" | "accuracy" | "custom">("speed");
   const [vocabularySpecialization, setVocabularySpecialization] = useState<"general" | "medical">("general");
@@ -2555,6 +2555,7 @@ export default function AgentDetailPage() {
                     {[
                       { value: "deepgram", label: "Deepgram", sub: "nova-3 · Full feature support", badges: ["Denoising", "Keywords", "Medical"] },
                       { value: "openai_whisper", label: "OpenAI Whisper", sub: "whisper-1 / gpt-4o-transcribe", badges: ["Speed", "Accuracy"] },
+                      { value: "nepali_wav2vec2", label: "Nepali wav2vec2", sub: "addy88/wav2vec2-nepali-stt", badges: ["Nepali", "Local"] },
                     ].map((opt) => (
                       <button
                         key={opt.value}
