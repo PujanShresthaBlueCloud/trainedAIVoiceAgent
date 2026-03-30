@@ -9,15 +9,14 @@ Speaker embeddings: backend/models/nepali_tts/tts_model/speaker_embeddings.pt
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
-import os
 from pathlib import Path
 
 import numpy as np
 
 from livekit.agents import tts, utils
-from livekit.agents.tts import TTS, TTSCapabilities, SynthesizedAudio, ChunkedStream
+from livekit.agents.tts import TTS, TTSCapabilities, ChunkedStream, AudioEmitter
+from livekit.agents.types import APIConnectOptions, DEFAULT_API_CONNECT_OPTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +73,7 @@ def _load_model_sync():
     vocoder.eval()
 
     logger.info(f"Loading speaker embeddings from: {SPEAKER_EMBEDDINGS_PATH}")
-    speaker_embeddings = torch.load(SPEAKER_EMBEDDINGS_PATH, map_location="cpu")
+    speaker_embeddings = torch.load(SPEAKER_EMBEDDINGS_PATH, map_location="cpu", weights_only=True)
 
     # Ensure shape is [1, 512]
     if speaker_embeddings.dim() == 1:
@@ -107,8 +106,7 @@ def _synthesize_sync(text: str) -> np.ndarray:
         speech = _model.generate_speech(input_ids, embeddings, vocoder=_vocoder)
 
     # speech is a 1-D float32 tensor — convert to numpy
-    audio = speech.cpu().numpy().astype(np.float32)
-    return audio
+    return speech.cpu().numpy().astype(np.float32)
 
 
 def _float32_to_int16_bytes(audio: np.ndarray) -> bytes:
@@ -120,13 +118,18 @@ def _float32_to_int16_bytes(audio: np.ndarray) -> bytes:
 # ── ChunkedStream ─────────────────────────────────────────────────
 
 class NepaliChunkedStream(ChunkedStream):
-    """Synthesizes the full text in one shot then yields it as a single chunk."""
+    """Synthesizes the full text in one shot then emits it via AudioEmitter."""
 
-    def __init__(self, tts_instance: "NepaliTTS", text: str) -> None:
-        super().__init__(tts=tts_instance, input_text=text)
+    def __init__(
+        self,
+        tts_instance: "NepaliTTS",
+        text: str,
+        conn_options: APIConnectOptions,
+    ) -> None:
+        super().__init__(tts=tts_instance, input_text=text, conn_options=conn_options)
         self._text = text
 
-    async def _run(self) -> None:
+    async def _run(self, output_emitter: AudioEmitter) -> None:
         await _ensure_model_loaded()
 
         loop = asyncio.get_event_loop()
@@ -134,21 +137,14 @@ class NepaliChunkedStream(ChunkedStream):
 
         pcm_bytes = _float32_to_int16_bytes(audio_np)
 
-        # Build a single AudioFrame and emit it
-        from livekit import rtc
-        frame = rtc.AudioFrame(
-            data=pcm_bytes,
+        output_emitter.initialize(
+            request_id=utils.shortuuid(),
             sample_rate=SAMPLE_RATE,
             num_channels=1,
-            samples_per_channel=len(audio_np),
+            mime_type="audio/pcm",
         )
-        self._event_ch.send_nowait(
-            SynthesizedAudio(
-                request_id=self._request_id,
-                segment_id=self._segment_id,
-                frame=frame,
-            )
-        )
+        output_emitter.push(pcm_bytes)
+        output_emitter.end_input()
 
 
 # ── TTS plugin ────────────────────────────────────────────────────
@@ -163,8 +159,10 @@ class NepaliTTS(TTS):
             num_channels=1,
         )
 
-    def synthesize(self, text: str) -> NepaliChunkedStream:
-        return NepaliChunkedStream(self, text)
-
-    def stream(self) -> tts.SynthesizeStream:
-        return tts.SynthesizeStream(self)
+    def synthesize(
+        self,
+        text: str,
+        *,
+        conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
+    ) -> NepaliChunkedStream:
+        return NepaliChunkedStream(self, text, conn_options)
