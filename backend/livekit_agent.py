@@ -175,10 +175,16 @@ def _build_stt(agent_config: dict):
 
     provider = ts.get("stt_provider", "deepgram")
 
-    # Deepgram does not support Nepali — force local wav2vec2
-    if lang_short == "ne" and provider == "deepgram":
-        logger.info("STT: Nepali language detected, overriding provider to nepali_wav2vec2")
-        provider = "nepali_wav2vec2"
+    # Languages Deepgram does not support — auto-switch to a working provider
+    DEEPGRAM_UNSUPPORTED = {"ne", "bn", "ur", "si", "km", "lo", "my", "am", "sw"}
+
+    if provider == "deepgram" and lang_short in DEEPGRAM_UNSUPPORTED:
+        if lang_short == "ne":
+            provider = "nepali_wav2vec2"
+            logger.info("STT: Nepali detected — switching to nepali_wav2vec2")
+        else:
+            provider = "openai_whisper"
+            logger.info(f"STT: language={lang_short} not supported by Deepgram — switching to openai_whisper")
 
     transcription_mode = ts.get("transcription_mode", "speed")
     denoising_mode = ts.get("denoising_mode", "no_denoising")

@@ -1901,12 +1901,43 @@ export default function AgentDetailPage() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Language
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                  />
+                    onChange={(e) => {
+                      const lang = e.target.value;
+                      setLanguage(lang);
+                      // Auto-switch STT provider based on language
+                      if (lang === "ne") setSttProvider("nepali_wav2vec2");
+                      else if (["bn", "ur", "si", "km", "lo", "my", "am", "sw"].includes(lang)) setSttProvider("openai_whisper");
+                      else if (sttProvider === "nepali_wav2vec2") setSttProvider("deepgram");
+                    }}
+                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="en-US">English (US)</option>
+                    <option value="en-GB">English (UK)</option>
+                    <option value="ne">Nepali</option>
+                    <option value="hi">Hindi</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="it">Italian</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="ar">Arabic</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="ru">Russian</option>
+                    <option value="tr">Turkish</option>
+                    <option value="pl">Polish</option>
+                    <option value="nl">Dutch</option>
+                    <option value="sv">Swedish</option>
+                    <option value="id">Indonesian</option>
+                    <option value="ms">Malay</option>
+                    <option value="th">Thai</option>
+                    <option value="vi">Vietnamese</option>
+                    <option value="bn">Bengali</option>
+                    <option value="ur">Urdu</option>
+                  </select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
