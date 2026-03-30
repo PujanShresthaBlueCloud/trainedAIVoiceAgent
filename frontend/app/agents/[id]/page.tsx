@@ -1039,6 +1039,7 @@ export default function AgentDetailPage() {
   const [aiSpeaksFirst, setAiSpeaksFirst] = useState(false);
   const [dynamicMessage, setDynamicMessage] = useState(false);
   const [cartesiaVoiceId, setCartesiaVoiceId] = useState("");
+  const [ttsModel, setTtsModel] = useState("speecht5_finetuned");
 
   // Transfer call config
   const [transferDescription, setTransferDescription] = useState("Transfer the call to a human agent");
@@ -1128,6 +1129,7 @@ export default function AgentDetailPage() {
         mcpServers,
         webhookUrl, webhookTimeout, webhookEvents,
         sttProvider, denoisingMode, transcriptionMode, vocabularySpecialization, boostedKeywords,
+        ttsModel,
       }),
     [
       name, description, systemPrompt, voiceId, language, llmModel,
@@ -1142,6 +1144,7 @@ export default function AgentDetailPage() {
       transferTalkWhileWaiting, transferTalkMessage,
       mcpServers, webhookUrl, webhookTimeout, webhookEvents,
       sttProvider, denoisingMode, transcriptionMode, vocabularySpecialization, boostedKeywords,
+      ttsModel,
     ]
   );
   const isDirty = savedSnapshot !== "" && currentSnapshot !== savedSnapshot;
@@ -1182,6 +1185,7 @@ export default function AgentDetailPage() {
     setAiSpeaksFirst(meta.ai_speaks_first ?? false);
     setDynamicMessage(meta.dynamic_message ?? false);
     setCartesiaVoiceId(meta.cartesia_voice_id || "");
+    setTtsModel(meta.tts_model || "speecht5_finetuned");
     setTtsSpeed(meta.tts_speed || "normal");
     setTtsEmotion(meta.tts_emotion || []);
     setAllowInterruptions(meta.allow_interruptions ?? true);
@@ -1366,6 +1370,7 @@ export default function AgentDetailPage() {
           ai_speaks_first: aiSpeaksFirst,
           dynamic_message: dynamicMessage,
           cartesia_voice_id: cartesiaVoiceId.trim() || undefined,
+          tts_model: ttsModel,
           tts_speed: ttsSpeed,
           tts_emotion: ttsEmotion.length > 0 ? ttsEmotion : undefined,
           allow_interruptions: allowInterruptions,
@@ -1967,6 +1972,26 @@ export default function AgentDetailPage() {
                   <p className="text-xs text-gray-400 mt-1">Optional. Used if ElevenLabs TTS is configured.</p>
                 </div>
               </div>
+              {language === "ne" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Nepali TTS Model
+                  </label>
+                  <select
+                    value={ttsModel}
+                    onChange={(e) => setTtsModel(e.target.value)}
+                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="speecht5_finetuned">SpeechT5 Fine-tuned (current)</option>
+                    <option value="mms_tts">Facebook MMS-TTS Nepali (better quality)</option>
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {ttsModel === "mms_tts"
+                      ? "Downloads ~300MB from HuggingFace on first use."
+                      : "Uses locally fine-tuned SpeechT5 model."}
+                  </p>
+                </div>
+              )}
             </CollapsibleSection>
 
             {/* 2. Prompt */}

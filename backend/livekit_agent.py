@@ -319,11 +319,17 @@ def _build_tts(agent_config: dict):
     language = agent_config.get("language", "en-US")
     metadata = agent_config.get("metadata") or {}
 
-    # Use Nepali local TTS only when language is Nepali
+    # Use Nepali TTS when language is Nepali
     if language and language.lower().startswith("ne"):
-        logger.info("Using local Nepali TTS (SpeechT5 fine-tuned)")
-        from app.voice.nepali_tts import NepaliTTS
-        return NepaliTTS()
+        tts_model = metadata.get("tts_model", "speecht5_finetuned")
+        if tts_model == "mms_tts":
+            logger.info("Using Facebook MMS-TTS Nepali")
+            from app.voice.nepali_mms_tts import NepaliMMSTTS
+            return NepaliMMSTTS()
+        else:
+            logger.info("Using local Nepali TTS (SpeechT5 fine-tuned)")
+            from app.voice.nepali_tts import NepaliTTS
+            return NepaliTTS()
 
     # Default: Cartesia TTS
     cartesia_voice = metadata.get("cartesia_voice_id")
