@@ -193,13 +193,73 @@ def _get_sample_rate(buffer: utils.AudioBuffer) -> int:
 
 
 def _to_latin(text: str) -> str:
-    """Transliterate Devanagari text to Latin (ITRANS) ASCII."""
-    try:
-        from indic_transliteration import sanscript
-        from indic_transliteration.sanscript import transliterate
-        return transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
-    except Exception:
-        return text  # fallback: return original if library missing
+    """Transliterate Devanagari text to readable English alphabet.
+
+    Handles the inherent 'a' vowel: each consonant gets 'a' unless
+    followed by virama (्) or a vowel matra.
+    """
+    CONSONANTS = {
+        'क': 'k',  'ख': 'kh', 'ग': 'g',  'घ': 'gh', 'ङ': 'ng',
+        'च': 'ch', 'छ': 'chh','ज': 'j',  'झ': 'jh', 'ञ': 'ny',
+        'ट': 't',  'ठ': 'th', 'ड': 'd',  'ढ': 'dh', 'ण': 'n',
+        'त': 't',  'थ': 'th', 'द': 'd',  'ध': 'dh', 'न': 'n',
+        'प': 'p',  'फ': 'ph', 'ब': 'b',  'भ': 'bh', 'म': 'm',
+        'य': 'y',  'र': 'r',  'ल': 'l',  'व': 'w',  'श': 'sh',
+        'ष': 'sh', 'स': 's',  'ह': 'h',  'ळ': 'l',
+    }
+    VOWELS = {
+        'अ': 'a',  'आ': 'aa', 'इ': 'i',  'ई': 'ii',
+        'उ': 'u',  'ऊ': 'uu', 'ए': 'e',  'ऐ': 'ai',
+        'ओ': 'o',  'औ': 'au', 'ऋ': 'ri', 'ॐ': 'om',
+    }
+    MATRAS = {
+        'ा': 'aa', 'ि': 'i',  'ी': 'ii', 'ु': 'u',
+        'ू': 'uu', 'े': 'e',  'ै': 'ai', 'ो': 'o',
+        'ौ': 'au', 'ृ': 'ri',
+    }
+    VIRAMA = '्'
+    MISC = {
+        'ं': 'n', 'ः': 'h', 'ँ': '', 'ऽ': '',
+        '।': '.', '॥': '.',
+        '०':'0','१':'1','२':'2','३':'3','४':'4',
+        '५':'5','६':'6','७':'7','८':'8','९':'9',
+    }
+
+    chars = list(text)
+    result = []
+    i = 0
+    while i < len(chars):
+        ch = chars[i]
+        nxt = chars[i + 1] if i + 1 < len(chars) else ''
+
+        if ch in CONSONANTS:
+            result.append(CONSONANTS[ch])
+            if nxt == VIRAMA:
+                i += 2          # virama suppresses inherent 'a', skip it
+            elif nxt in MATRAS:
+                result.append(MATRAS[nxt])
+                i += 2
+            else:
+                result.append('a')  # inherent vowel
+                i += 1
+        elif ch in VOWELS:
+            result.append(VOWELS[ch])
+            i += 1
+        elif ch in MATRAS:
+            result.append(MATRAS[ch])
+            i += 1
+        elif ch in MISC:
+            result.append(MISC[ch])
+            i += 1
+        elif ch == VIRAMA:
+            i += 1              # standalone virama — skip
+        elif ch.isascii():
+            result.append(ch)
+            i += 1
+        else:
+            i += 1              # skip unknown chars
+
+    return ''.join(result)
 
 
 def _resample(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
