@@ -477,16 +477,24 @@ def _build_agent(agent_config: dict, call_id: str, mcp_servers: list | None = No
             tools.append(_book_appointment)
 
         elif tool_name in custom_funcs:
-            # Fix closure: bind tool_name via default arg so each function captures its own value
             func_def = custom_funcs[tool_name]
             _name = tool_name
             _desc = func_def.get("description", f"Custom function: {tool_name}")
 
-            @function_tool(name=_name, description=_desc)
-            async def _custom_tool(_tn: str = _name, **kwargs) -> str:
-                result = await execute_tool(call_id, _tn, kwargs)
-                return json.dumps(result)
-            tools.append(_custom_tool)
+            # Use a factory to properly capture the closure and avoid **kwargs
+            # (livekit-agents v1.4 strict schema builder crashes on **kwargs)
+            def _make_custom_tool(tn: str, desc: str):
+                @function_tool(name=tn, description=desc)
+                async def _tool(arguments: str = "{}") -> str:
+                    try:
+                        kwargs = json.loads(arguments) if arguments else {}
+                    except Exception:
+                        kwargs = {}
+                    result = await execute_tool(call_id, tn, kwargs)
+                    return json.dumps(result)
+                return _tool
+
+            tools.append(_make_custom_tool(_name, _desc))
 
         else:
             logger.warning(f"Tool '{tool_name}' not found in built-in or custom functions — skipping")
