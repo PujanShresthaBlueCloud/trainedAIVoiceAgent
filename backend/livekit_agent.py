@@ -739,8 +739,8 @@ async def entrypoint(ctx: agents.JobContext):
 
     # Speech session settings from agent metadata
     allow_interruptions = agent_metadata.get("allow_interruptions", True)
-    min_endpointing_delay = float(agent_metadata.get("min_endpointing_delay", 0.3))
-    max_endpointing_delay = float(agent_metadata.get("max_endpointing_delay", 1.5))
+    min_endpointing_delay = float(agent_metadata.get("min_endpointing_delay", 0.1))
+    max_endpointing_delay = float(agent_metadata.get("max_endpointing_delay", 0.8))
 
     # Create and start the session with low-latency settings
     session = AgentSession(
@@ -869,5 +869,21 @@ async def entrypoint(ctx: agents.JobContext):
     asyncio.create_task(_monitor_disconnect())
 
 
+async def _prewarm(proc: agents.JobProcess) -> None:
+    """Pre-load heavy models at worker startup so first call has no cold-start delay."""
+    import asyncio
+    try:
+        from app.voice.nepali_tts import _ensure_model_loaded as _tts_load
+        from app.voice.nepali_stt import _ensure_model_loaded as _stt_load
+        logger.info("Pre-warming Nepali STT + TTS models...")
+        await asyncio.gather(_tts_load(), _stt_load())
+        logger.info("Nepali models pre-warmed and ready")
+    except Exception as e:
+        logger.warning(f"Model pre-warm failed (non-fatal): {e}")
+
+
 if __name__ == "__main__":
-    agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
+    agents.cli.run_app(agents.WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        prewarm_fnc=_prewarm,
+    ))
