@@ -243,7 +243,15 @@ def _build_stt(agent_config: dict):
     # ── Nepali wav2vec2 ───────────────────────────────────────────
     elif provider == "nepali_wav2vec2":
         from app.voice.nepali_stt import NepaliSTT
-        return NepaliSTT()
+        from livekit.agents.stt import StreamAdapter
+        # NepaliSTT is non-streaming; StreamAdapter adds VAD-based buffering
+        # so the AgentSession gets a proper streaming STT interface
+        _vad = silero.VAD.load(
+            min_speech_duration=0.05,
+            min_silence_duration=0.3,
+            activation_threshold=0.5,
+        )
+        return StreamAdapter(stt=NepaliSTT(), vad=_vad)
 
     # ── Fallback: Deepgram with defaults ─────────────────────────
     else:

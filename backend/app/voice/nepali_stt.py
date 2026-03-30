@@ -118,11 +118,12 @@ class NepaliSTT(stt.STT):
             )
         )
 
-    async def recognize(
+    async def _recognize_impl(
         self,
         buffer: utils.AudioBuffer,
         *,
         language: str | None = "ne",
+        conn_options=None,
     ) -> SpeechEvent:
         await _ensure_model_loaded()
 
@@ -155,12 +156,9 @@ class NepaliSTT(stt.STT):
             ],
         )
 
-    def stream(self, *, language: str | None = "ne") -> stt.SpeechStream:
-        # Wrap non-streaming recognize() in a buffered stream adapter
-        return utils.audio.BufferedSpeechStream(
-            stt=self,
-            language=language,
-        )
+    # stream() is intentionally not overridden — callers should wrap this STT
+    # with livekit.agents.stt.StreamAdapter(stt=NepaliSTT(), vad=...) to get
+    # a streaming interface. See _build_stt() in livekit_agent.py.
 
 
 # ── Audio helpers ─────────────────────────────────────────────────
