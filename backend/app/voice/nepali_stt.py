@@ -155,7 +155,9 @@ class NepaliSTT(stt.STT):
             None, _transcribe_sync, audio_float32, self.TARGET_SAMPLE_RATE
         )
 
-        logger.info(f"Nepali STT transcript: {transcription!r}")
+        # Transliterate Devanagari → Latin (ITRANS) so LLM receives plain ASCII
+        transcription = _to_latin(transcription)
+        logger.info(f"Nepali STT transcript (latin): {transcription!r}")
 
         return SpeechEvent(
             type=SpeechEventType.FINAL_TRANSCRIPT,
@@ -188,6 +190,16 @@ def _get_sample_rate(buffer: utils.AudioBuffer) -> int:
     if buffer:
         return buffer[0].sample_rate
     return NepaliSTT.TARGET_SAMPLE_RATE
+
+
+def _to_latin(text: str) -> str:
+    """Transliterate Devanagari text to Latin (ITRANS) ASCII."""
+    try:
+        from indic_transliteration import sanscript
+        from indic_transliteration.sanscript import transliterate
+        return transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
+    except Exception:
+        return text  # fallback: return original if library missing
 
 
 def _resample(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
