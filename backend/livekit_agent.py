@@ -319,10 +319,8 @@ def _build_tts(agent_config: dict):
     language = agent_config.get("language", "en-US")
     metadata = agent_config.get("metadata") or {}
 
-    # Use Nepali local TTS when language is Nepali or explicitly selected
-    ts = metadata.get("transcription_settings", {})
-    stt_provider = ts.get("stt_provider", "deepgram")
-    if stt_provider == "nepali_wav2vec2" or (language and language.lower().startswith("ne")):
+    # Use Nepali local TTS only when language is Nepali
+    if language and language.lower().startswith("ne"):
         logger.info("Using local Nepali TTS (SpeechT5 fine-tuned)")
         from app.voice.nepali_tts import NepaliTTS
         return NepaliTTS()
