@@ -125,15 +125,22 @@ class NepaliSTT(stt.STT):
         language: str | None = "ne",
         conn_options=None,
     ) -> SpeechEvent:
-        logger.info(f"NepaliSTT._recognize_impl called, buffer_frames={len(buffer) if buffer else 0}")
         await _ensure_model_loaded()
 
-        # Merge all AudioFrames into a single float32 array
-        audio_float32 = _audio_buffer_to_float32(buffer)
-        sample_rate = _get_sample_rate(buffer)
+        # In livekit-agents v1.4, buffer is a single AudioFrame
+        from livekit import rtc
+        if isinstance(buffer, rtc.AudioFrame):
+            frames = [buffer]
+        else:
+            frames = list(buffer) if buffer else []
+
+        logger.info(f"NepaliSTT._recognize_impl called, frames={len(frames)}")
+
+        audio_float32 = _audio_buffer_to_float32(frames)
+        sample_rate = _get_sample_rate(frames)
 
         # Resample to 16 kHz if needed
-        if sample_rate != self.TARGET_SAMPLE_RATE:
+        if sample_rate and sample_rate != self.TARGET_SAMPLE_RATE:
             audio_float32 = _resample(audio_float32, sample_rate, self.TARGET_SAMPLE_RATE)
 
         if audio_float32.size == 0:
