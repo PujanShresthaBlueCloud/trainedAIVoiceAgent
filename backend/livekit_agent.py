@@ -174,6 +174,12 @@ def _build_stt(agent_config: dict):
     ts = (agent_config.get("metadata") or {}).get("transcription_settings", {})
 
     provider = ts.get("stt_provider", "deepgram")
+
+    # Deepgram does not support Nepali — force local wav2vec2
+    if lang_short == "ne" and provider == "deepgram":
+        logger.info("STT: Nepali language detected, overriding provider to nepali_wav2vec2")
+        provider = "nepali_wav2vec2"
+
     transcription_mode = ts.get("transcription_mode", "speed")
     denoising_mode = ts.get("denoising_mode", "no_denoising")
     vocabulary = ts.get("vocabulary", "general")
