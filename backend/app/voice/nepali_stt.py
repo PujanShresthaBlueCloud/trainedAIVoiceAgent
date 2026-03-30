@@ -125,6 +125,7 @@ class NepaliSTT(stt.STT):
         language: str | None = "ne",
         conn_options=None,
     ) -> SpeechEvent:
+        logger.info(f"NepaliSTT._recognize_impl called, buffer_frames={len(buffer) if buffer else 0}")
         await _ensure_model_loaded()
 
         # Merge all AudioFrames into a single float32 array

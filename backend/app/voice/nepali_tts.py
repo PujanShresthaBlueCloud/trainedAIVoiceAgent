@@ -18,6 +18,9 @@ from livekit.agents import tts, utils
 from livekit.agents.tts import TTS, TTSCapabilities, ChunkedStream, AudioEmitter
 from livekit.agents.types import APIConnectOptions, DEFAULT_API_CONNECT_OPTIONS
 
+# Long timeout for first-load: model takes 20-60s on CPU
+_NEPALI_CONN_OPTIONS = APIConnectOptions(max_retry=1, retry_interval=0, timeout=120.0)
+
 logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────
@@ -130,21 +133,28 @@ class NepaliChunkedStream(ChunkedStream):
         self._text = text
 
     async def _run(self, output_emitter: AudioEmitter) -> None:
-        await _ensure_model_loaded()
+        logger.info(f"NepaliTTS._run called, text={self._text[:50]!r}")
+        try:
+            await _ensure_model_loaded()
 
-        loop = asyncio.get_event_loop()
-        audio_np = await loop.run_in_executor(None, _synthesize_sync, self._text)
+            loop = asyncio.get_event_loop()
+            audio_np = await loop.run_in_executor(None, _synthesize_sync, self._text)
+            logger.info(f"NepaliTTS synthesis done: {len(audio_np)} samples ({len(audio_np)/SAMPLE_RATE:.2f}s)")
 
-        pcm_bytes = _float32_to_int16_bytes(audio_np)
+            pcm_bytes = _float32_to_int16_bytes(audio_np)
 
-        output_emitter.initialize(
-            request_id=utils.shortuuid(),
-            sample_rate=SAMPLE_RATE,
-            num_channels=1,
-            mime_type="audio/pcm",
-        )
-        output_emitter.push(pcm_bytes)
-        output_emitter.end_input()
+            output_emitter.initialize(
+                request_id=utils.shortuuid(),
+                sample_rate=SAMPLE_RATE,
+                num_channels=1,
+                mime_type="audio/pcm",
+            )
+            output_emitter.push(pcm_bytes)
+            output_emitter.end_input()
+            logger.info("NepaliTTS audio emitted successfully")
+        except Exception as e:
+            logger.exception(f"NepaliTTS._run failed: {e}")
+            raise
 
 
 # ── TTS plugin ────────────────────────────────────────────────────
@@ -163,6 +173,6 @@ class NepaliTTS(TTS):
         self,
         text: str,
         *,
-        conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
+        conn_options: APIConnectOptions = _NEPALI_CONN_OPTIONS,
     ) -> NepaliChunkedStream:
         return NepaliChunkedStream(self, text, conn_options)
