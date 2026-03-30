@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────
 
-_BASE = Path(__file__).resolve().parents[3] / "models" / "nepali_tts" / "tts_model"
+_BASE = Path(__file__).resolve().parents[2] / "models" / "nepali_tts" / "tts_model"
 MODEL_PATH = str(_BASE / "speecht5_finetuned" / "checkpoint-2500")
 SPEAKER_EMBEDDINGS_PATH = str(_BASE / "speaker_embeddings.pt")
 VOCODER_NAME = "microsoft/speecht5_hifigan"
@@ -64,8 +64,8 @@ def _load_model_sync():
 
     logger.info(f"Loading Nepali TTS model from: {MODEL_PATH}")
 
-    processor = SpeechT5Processor.from_pretrained(MODEL_PATH)
-    model = SpeechT5ForTextToSpeech.from_pretrained(MODEL_PATH)
+    processor = SpeechT5Processor.from_pretrained(MODEL_PATH, local_files_only=True)
+    model = SpeechT5ForTextToSpeech.from_pretrained(MODEL_PATH, local_files_only=True)
     model.eval()
 
     logger.info(f"Loading vocoder: {VOCODER_NAME}")
