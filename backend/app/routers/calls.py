@@ -43,14 +43,42 @@ async def get_call(call_id: str):
 @router.get("/{call_id}/transcript")
 async def get_transcript(call_id: str):
     db = get_supabase()
-    result = (
+
+    transcript = (
         db.table("transcript_entries")
         .select("*")
         .eq("call_id", call_id)
         .order("timestamp", desc=False)
         .execute()
-    )
-    return result.data
+    ).data or []
+
+    tool_calls = (
+        db.table("function_call_logs")
+        .select("*")
+        .eq("call_id", call_id)
+        .order("executed_at", desc=False)
+        .execute()
+    ).data or []
+
+    # Normalize tool calls into the same shape as transcript entries
+    tool_items = [
+        {
+            "role": "tool",
+            "content": tc.get("function_name", ""),
+            "arguments": tc.get("arguments"),
+            "result": tc.get("result"),
+            "status": tc.get("status", "completed"),
+            "error_message": tc.get("error_message"),
+            "timestamp": tc.get("executed_at"),
+        }
+        for tc in tool_calls
+    ]
+
+    # Merge and sort by timestamp
+    merged = transcript + tool_items
+    merged.sort(key=lambda x: x.get("timestamp") or "")
+
+    return merged
 
 
 @router.post("/outbound")

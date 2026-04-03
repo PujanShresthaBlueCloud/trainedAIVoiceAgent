@@ -160,8 +160,8 @@ export const api = {
 
   // Compliance
   getComplianceStatus: () => request<any>("/api/compliance/status"),
-  getAuditLogs: (limit: number = 50) =>
-    request<any[]>(`/api/compliance/audit-logs?limit=${limit}`),
+  getAuditLogs: (limit: number = 50, offset: number = 0) =>
+    request<any[]>(`/api/compliance/audit-logs?limit=${limit}&offset=${offset}`),
   requestDataExport: (phoneNumber: string) =>
     request<any>("/api/compliance/data-export", {
       method: "POST",

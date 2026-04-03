@@ -17,10 +17,10 @@ import {
   DollarSign,
   Clock,
   Hash,
-  Search,
+
   Phone,
   MessageSquare,
-  History,
+
   CheckCircle,
   AlertCircle,
   Loader2,
@@ -994,7 +994,12 @@ export default function AgentDetailPage() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [calls, setCalls] = useState<Call[]>([]);
   const [callsLoading, setCallsLoading] = useState(true);
-  const [callSearch, setCallSearch] = useState("");
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+  const [activeCallId, setActiveCallId] = useState<string | null>(null); // call currently in-progress via VoiceCallButton
+
+  const [transcript, setTranscript] = useState<{ role: string; content: string; timestamp?: string; arguments?: any; result?: any; status?: string; error_message?: string }[]>([]);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const transcriptBottomRef = useRef<HTMLDivElement>(null);
   const [testTab, setTestTab] = useState<"audio" | "chat">("audio");
 
   // Quick-create modal state
@@ -1315,7 +1320,16 @@ export default function AgentDetailPage() {
     setCallsLoading(true);
     try {
       const data = await api.listCalls();
-      setCalls(data.filter((c: Call) => c.agent_id === agentId));
+      const agentCalls = data.filter((c: Call) => c.agent_id === agentId);
+      setCalls(agentCalls);
+      if (agentCalls.length > 0) {
+        // Switch to a new in-progress call if one appears, otherwise keep selection
+        const activeCall = agentCalls.find((c) => c.status === "in-progress" || c.status === "in_progress");
+        setSelectedCallId((prev) => {
+          if (activeCall && activeCall.id !== prev) return activeCall.id;
+          return prev ?? agentCalls[0].id;
+        });
+      }
     } catch (e) {
       console.error("Failed to load calls:", e);
     } finally {
@@ -1323,19 +1337,48 @@ export default function AgentDetailPage() {
     }
   }, [agentId]);
 
+  const loadTranscript = useCallback(async (callId: string) => {
+    setTranscriptLoading(true);
+    try {
+      const data = await api.getTranscript(callId);
+      setTranscript(data || []);
+    } catch (e) {
+      console.error("Failed to load transcript:", e);
+      setTranscript([]);
+    } finally {
+      setTranscriptLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadAgent();
     loadExtras();
     loadCalls();
   }, [loadAgent, loadExtras, loadCalls]);
 
-  // Poll calls while on audio test tab to pick up new calls after testing
+  // Load transcript once when selected call changes
+  useEffect(() => {
+    if (selectedCallId) loadTranscript(selectedCallId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCallId]);
+
+  // Scroll to bottom when transcript updates
+  useEffect(() => {
+    transcriptBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcript]);
+
+  // Fast-poll transcript (3s) while a call is actively in progress
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (testTab === "audio") {
+      const interval = activeCallId ? 3000 : 10000;
       pollIntervalRef.current = setInterval(() => {
         loadCalls();
-      }, 10000);
+        // If there's a live call, always refresh its transcript
+        if (activeCallId) {
+          loadTranscript(activeCallId);
+        }
+      }, interval);
     }
     return () => {
       if (pollIntervalRef.current) {
@@ -1343,7 +1386,7 @@ export default function AgentDetailPage() {
         pollIntervalRef.current = null;
       }
     };
-  }, [testTab, loadCalls]);
+  }, [testTab, loadCalls, loadTranscript, activeCallId]);
 
   // --- Actions ---
   const handleSave = async () => {
@@ -1704,16 +1747,6 @@ export default function AgentDetailPage() {
   );
 
   // --- Derived data ---
-  const filteredCalls = useMemo(() => {
-    if (!callSearch.trim()) return calls;
-    const q = callSearch.toLowerCase();
-    return calls.filter(
-      (c) =>
-        (c.status || "").toLowerCase().includes(q) ||
-        (c.caller_number || "").toLowerCase().includes(q) ||
-        (c.summary || "").toLowerCase().includes(q)
-    );
-  }, [calls, callSearch]);
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString();
@@ -1914,7 +1947,7 @@ export default function AgentDetailPage() {
                       // Auto-switch STT provider based on language
                       if (lang === "ne") setSttProvider("nepali_wav2vec2");
                       else if (["bn", "ur", "si", "km", "lo", "my", "am", "sw"].includes(lang)) setSttProvider("openai_whisper");
-                      else if (sttProvider === "nepali_wav2vec2") setSttProvider("deepgram");
+                      else if (sttProvider === "nepali_wav2vec2" || sttProvider === "openai_whisper") setSttProvider("deepgram");
                     }}
                     className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                   >
@@ -1977,18 +2010,11 @@ export default function AgentDetailPage() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Nepali TTS Model
                   </label>
-                  <select
-                    value={ttsModel}
-                    onChange={(e) => setTtsModel(e.target.value)}
-                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                    <option value="speecht5_finetuned">SpeechT5 Fine-tuned (current)</option>
-                    <option value="mms_tts">Facebook MMS-TTS Nepali (better quality)</option>
-                  </select>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {ttsModel === "mms_tts"
-                      ? "Downloads ~300MB from HuggingFace on first use."
-                      : "Uses locally fine-tuned SpeechT5 model."}
+                  <p className="text-sm text-gray-600 dark:text-gray-400 py-2">
+                    SpeechT5 Fine-tuned (local model)
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    Uses locally fine-tuned SpeechT5 model optimized for Nepali.
                   </p>
                 </div>
               )}
@@ -3339,7 +3365,7 @@ export default function AgentDetailPage() {
           </div>
         </div>
 
-        {/* Right Panel — Test & History */}
+        {/* Right Panel — Test & Conversation */}
         <div className="w-[40%] flex flex-col min-h-0">
           {/* Tab Bar */}
           <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-800">
@@ -3380,95 +3406,106 @@ export default function AgentDetailPage() {
                   <p className="text-xs text-gray-400 dark:text-gray-500">
                     Please note call transfer is not supported in Webcall.
                   </p>
-                  <VoiceCallButton agentId={agentId} size="lg" />
+                  <VoiceCallButton
+                    agentId={agentId}
+                    size="lg"
+                    onCallStarted={(callId) => {
+                      setActiveCallId(callId);
+                      setSelectedCallId(callId);
+                    }}
+                    onCallEnded={() => setActiveCallId(null)}
+                  />
                 </div>
               </div>
 
-              {/* Call History */}
+              {/* Conversation Transcript */}
               <div className="flex-1 flex flex-col min-h-0">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-                  <div className="flex items-center gap-2">
-                    <History className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">
-                      Call History
-                    </span>
-                    <span className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
-                      {calls.length}
-                    </span>
-                  </div>
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search..."
-                      value={callSearch}
-                      onChange={(e) => setCallSearch(e.target.value)}
-                      className="pl-8 pr-3 py-1.5 w-40 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                    />
-                  </div>
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+                  <MessageSquare className="w-4 h-4 text-gray-400" />
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">Conversation</span>
                 </div>
-                <div className="flex-1 overflow-y-auto">
-                  {callsLoading ? (
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+                  {callsLoading || transcriptLoading ? (
                     <div className="flex items-center justify-center py-12 gap-2 text-gray-400 dark:text-gray-500">
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span className="text-sm">Loading calls...</span>
+                      <span className="text-sm">Loading...</span>
                     </div>
-                  ) : filteredCalls.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
-                      <Phone className="w-8 h-8 mb-2 opacity-50" />
-                      <p className="text-sm">{calls.length === 0 ? "No calls yet" : "No matching calls"}</p>
+                  ) : calls.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+                      <Phone className="w-8 h-8 mb-2 opacity-40" />
+                      <p className="text-sm">No calls yet</p>
+                      <p className="text-xs mt-1">Start a voice test to see the conversation here</p>
+                    </div>
+                  ) : transcript.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+                      <MessageSquare className="w-8 h-8 mb-2 opacity-40" />
+                      <p className="text-sm">No transcript for this call</p>
                     </div>
                   ) : (
-                    <div className="divide-y divide-gray-200 dark:divide-gray-800">
-                      {filteredCalls.map((call) => (
-                        <Link
-                          key={call.id}
-                          href="/calls"
-                          className="block px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                                    call.status === "completed"
-                                      ? "bg-green-400"
-                                      : call.status === "in_progress" || call.status === "in-progress"
-                                      ? "bg-yellow-400"
-                                      : "bg-gray-400"
-                                  }`}
-                                />
-                                <span className="text-sm text-gray-900 dark:text-white">
-                                  {call.direction === "inbound" ? "Inbound" : "Outbound"} Call
-                                </span>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                  call.status === "completed"
-                                    ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                                    : call.status === "in_progress" || call.status === "in-progress"
-                                    ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400"
-                                    : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
-                                }`}>
-                                  {call.status}
-                                </span>
+                    <>
+                      {transcript.map((msg, idx) => {
+                        if (msg.role === "tool") {
+                          const isError = msg.status === "failed";
+                          const resultStr = msg.result
+                            ? typeof msg.result === "string"
+                              ? msg.result
+                              : JSON.stringify(msg.result, null, 2)
+                            : msg.error_message || "";
+                          return (
+                            <div key={idx} className="flex justify-center">
+                              <div className="w-full max-w-[92%] rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <Zap className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                  <span className="font-semibold text-amber-700 dark:text-amber-400 font-mono">{msg.content}</span>
+                                  <span className={`ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded ${isError ? "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400" : "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"}`}>
+                                    {isError ? "failed" : "success"}
+                                  </span>
+                                </div>
+                                {msg.arguments && Object.keys(msg.arguments).length > 0 && (
+                                  <div className="text-gray-500 dark:text-gray-400 font-mono text-[11px] mb-1">
+                                    <span className="text-gray-400">args: </span>
+                                    {JSON.stringify(msg.arguments)}
+                                  </div>
+                                )}
+                                {resultStr && (
+                                  <div className="text-gray-700 dark:text-gray-300 font-mono text-[11px] whitespace-pre-wrap break-all">
+                                    <span className="text-gray-400">result: </span>
+                                    {resultStr}
+                                  </div>
+                                )}
                               </div>
-                              {call.summary && (
-                                <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5 ml-4">
-                                  {call.summary}
-                                </p>
-                              )}
                             </div>
-                            <div className="text-right flex-shrink-0 ml-3">
-                              <p className="text-xs text-gray-400">
-                                {formatDuration(call.duration_seconds)}
-                              </p>
-                              <p className="text-xs text-gray-400 dark:text-gray-500">
-                                {formatDate(call.started_at)}
-                              </p>
+                          );
+                        }
+                        return (
+                          <div
+                            key={idx}
+                            className={`flex gap-2.5 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                          >
+                            {msg.role === "assistant" && (
+                              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center mt-0.5">
+                                <Bot className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                              </div>
+                            )}
+                            <div
+                              className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                                msg.role === "user"
+                                  ? "bg-indigo-600 text-white rounded-tr-sm"
+                                  : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded-tl-sm"
+                              }`}
+                            >
+                              {msg.content}
                             </div>
+                            {msg.role === "user" && (
+                              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center mt-0.5">
+                                <User className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+                              </div>
+                            )}
                           </div>
-                        </Link>
-                      ))}
-                    </div>
+                        );
+                      })}
+                      <div ref={transcriptBottomRef} />
+                    </>
                   )}
                 </div>
               </div>

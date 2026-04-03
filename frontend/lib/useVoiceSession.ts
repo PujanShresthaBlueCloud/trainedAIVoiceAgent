@@ -24,6 +24,7 @@ interface VoiceSessionState {
   transcript: TranscriptMessage[];
   error: string | null;
   status: string;
+  callId: string | null;
 }
 
 export function useVoiceSession(agentId?: string) {
@@ -33,6 +34,7 @@ export function useVoiceSession(agentId?: string) {
     transcript: [],
     error: null,
     status: "idle",
+    callId: null,
   });
 
   const roomRef = useRef<Room | null>(null);
@@ -55,7 +57,12 @@ export function useVoiceSession(agentId?: string) {
 
       // Get token from backend
       const tokenData = await api.getLivekitToken(agentId);
-      const { token, livekit_url } = tokenData;
+      const { token, livekit_url, call_id } = tokenData;
+
+      // Set call_id immediately so the UI can start polling transcript
+      if (call_id) {
+        setState((s) => ({ ...s, callId: call_id }));
+      }
 
       const url = livekit_url || LIVEKIT_URL;
 
@@ -176,6 +183,7 @@ export function useVoiceSession(agentId?: string) {
         isConnected: false,
         isRecording: false,
         status: "idle",
+        callId: null,
       }));
     }
   }, []);

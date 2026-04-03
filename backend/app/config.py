@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     CLERK_SECRET_KEY: str = ""
     CLERK_PUBLISHABLE_KEY: str = ""
 
+    # HuggingFace (for gated models like facebook/mms-tts-npi)
+    HF_TOKEN: str = ""
+
     # Knowledge Base / RAG
     PINECONE_API_KEY: str = ""
     EMBEDDING_MODEL: str = "text-embedding-3-small"

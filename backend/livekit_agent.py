@@ -175,9 +175,14 @@ def _build_stt(agent_config: dict):
 
     provider = ts.get("stt_provider", "deepgram")
 
-    # Languages Deepgram does not support — auto-switch to a working provider
     DEEPGRAM_UNSUPPORTED = {"ne", "bn", "ur", "si", "km", "lo", "my", "am", "sw"}
 
+    # If provider is Nepali-specific but language is no longer Nepali, fall back to Deepgram
+    if provider == "nepali_wav2vec2" and lang_short != "ne":
+        provider = "deepgram"
+        logger.info(f"STT: provider was nepali_wav2vec2 but language={lang_short} — falling back to deepgram")
+
+    # Languages Deepgram does not support — auto-switch to a working provider
     if provider == "deepgram" and lang_short in DEEPGRAM_UNSUPPORTED:
         if lang_short == "ne":
             provider = "nepali_wav2vec2"
@@ -321,15 +326,9 @@ def _build_tts(agent_config: dict):
 
     # Use Nepali TTS when language is Nepali
     if language and language.lower().startswith("ne"):
-        tts_model = metadata.get("tts_model", "speecht5_finetuned")
-        if tts_model == "mms_tts":
-            logger.info("Using Facebook MMS-TTS Nepali")
-            from app.voice.nepali_mms_tts import NepaliMMSTTS
-            return NepaliMMSTTS()
-        else:
-            logger.info("Using local Nepali TTS (SpeechT5 fine-tuned)")
-            from app.voice.nepali_tts import NepaliTTS
-            return NepaliTTS()
+        logger.info("Using local Nepali TTS (SpeechT5 fine-tuned)")
+        from app.voice.nepali_tts import NepaliTTS
+        return NepaliTTS()
 
     # Default: Cartesia TTS
     cartesia_voice = metadata.get("cartesia_voice_id")

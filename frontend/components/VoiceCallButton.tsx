@@ -1,18 +1,36 @@
 "use client";
+import { useRef, useEffect } from "react";
 import { Phone, PhoneOff, Mic, MicOff, Loader2 } from "lucide-react";
 import { useVoiceSession } from "@/lib/useVoiceSession";
 
 interface VoiceCallButtonProps {
   agentId?: string;
   size?: "sm" | "md" | "lg";
+  onCallStarted?: (callId: string) => void;
+  onCallEnded?: () => void;
 }
 
 export default function VoiceCallButton({
   agentId,
   size = "md",
+  onCallStarted,
+  onCallEnded,
 }: VoiceCallButtonProps) {
-  const { isConnected, isRecording, transcript, error, status, connect, disconnect } =
+  const { isConnected, isRecording, transcript, error, status, callId, connect, disconnect } =
     useVoiceSession(agentId);
+
+  // Notify parent when callId is set (call started)
+  const prevCallId = useRef<string | null>(null);
+  useEffect(() => {
+    if (callId && callId !== prevCallId.current) {
+      prevCallId.current = callId;
+      onCallStarted?.(callId);
+    }
+    if (!callId && prevCallId.current) {
+      prevCallId.current = null;
+      onCallEnded?.();
+    }
+  }, [callId, onCallStarted, onCallEnded]);
 
   const sizeClasses = {
     sm: "px-3 py-1.5 text-sm",
